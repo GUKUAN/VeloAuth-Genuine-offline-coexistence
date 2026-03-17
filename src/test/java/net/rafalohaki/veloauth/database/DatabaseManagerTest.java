@@ -82,7 +82,7 @@ class DatabaseManagerTest {
     }
 
     @Test
-    void isPremium_runtimeExceptionShouldReturnGenericDatabaseError() throws Exception {
+    void isPremium_runtimeExceptionShouldReturnGenericDatabaseError() {
         PremiumUuidDao premiumUuidDao = mock(PremiumUuidDao.class);
         when(premiumUuidDao.findByNickname("Alice"))
                 .thenThrow(new RuntimeException("org.h2.jdbc.JdbcSQLSyntaxErrorException: leaked details"));

@@ -24,16 +24,16 @@ final class DefaultConfigGenerator {
      */
     static void createDefaultConfig(Path configFile) throws IOException {
         String defaultConfig = String.join("\n",
-                languageSection(),
-                debugSection(),
-                databaseSection(),
-                cacheSection(),
-                authServerSection(),
-                connectionSection(),
-                securitySection(),
-                premiumSection(),
-                floodgateSection(),
-                alertsSection(),
+                LANGUAGE_SECTION,
+                DEBUG_SECTION,
+                DATABASE_SECTION,
+                CACHE_SECTION,
+                AUTH_SERVER_SECTION,
+                CONNECTION_SECTION,
+                SECURITY_SECTION,
+                PREMIUM_SECTION,
+                FLOODGATE_SECTION,
+                ALERTS_SECTION,
                 "" // trailing newline
         ).replace(BUILT_IN_LANGUAGE_CODES_PLACEHOLDER, BuiltInLanguages.quotedCodeList());
 
@@ -41,8 +41,7 @@ final class DefaultConfigGenerator {
         logger.info("Utworzono domyślny plik konfiguracji");
     }
 
-    private static String languageSection() {
-        return """
+    private static final String LANGUAGE_SECTION = """
                 # VeloAuth Configuration
                 # Complete Velocity Authentication Plugin
                 
@@ -51,17 +50,13 @@ final class DefaultConfigGenerator {
                 # Available built-in language codes: __BUILT_IN_LANGUAGE_CODES__
                 # Examples: en=English, pl=Polski, zh_cn=Chinese Simplified, zh_hk=Chinese Traditional (Hong Kong), ja=Japanese, ko=Korean, th=Thai, id=Indonesian, pt_br=Brazilian Portuguese
                 # To add custom language: create messages_XX.properties in plugins/VeloAuth/lang/""";
-    }
 
-    private static String debugSection() {
-        return """
+    private static final String DEBUG_SECTION = """
                 
                 # Debug settings (enable for detailed logging)
                 debug-enabled: false # Set to true for development/debugging""";
-    }
 
-    private static String databaseSection() {
-        return """
+    private static final String DATABASE_SECTION = """
                 
                 # Database storage configuration (supported: H2, MYSQL, POSTGRESQL, SQLITE)
                 database:
@@ -97,11 +92,9 @@ final class DefaultConfigGenerator {
                     # Path to SSL root certificate file (optional)
                     ssl-root-cert: ""
                     # SSL password for key file (optional)
-                    ssl-password: \"\"""";
-    }
+                    ssl-password: "\"""";
 
-    private static String cacheSection() {
-        return """
+    private static final String CACHE_SECTION = """
                 
                 # Authentication cache configuration
                 cache:
@@ -111,28 +104,22 @@ final class DefaultConfigGenerator {
                   session-timeout-minutes: 60 # Session inactivity timeout in minutes (default: 60)
                   premium-ttl-hours: 24 # Premium status cache TTL in hours (default: 24)
                   premium-refresh-threshold: 0.8 # Background refresh threshold (0.0-1.0, default: 0.8)""";
-    }
 
-    private static String authServerSection() {
-        return """
+    private static final String AUTH_SERVER_SECTION = """
                 
                 # Auth server (limbo/lobby for unauthenticated players)
                 # Compatible with: NanoLimbo, LOOHP/Limbo, LimboService, PicoLimbo, hpfxd/Limbo
                 auth-server:
                   server-name: limbo # Must match server name in velocity.toml [servers]
                   timeout-seconds: 300 # Seconds before unauthenticated player is kicked""";
-    }
 
-    private static String connectionSection() {
-        return """
+    private static final String CONNECTION_SECTION = """
                 
                 # Connection settings
                 connection:
                   timeout-seconds: 20 # Connection timeout in seconds. Increase if your backend servers are slow.""";
-    }
 
-    private static String securitySection() {
-        return """
+    private static final String SECURITY_SECTION = """
                 
                 # Security settings for password hashing and brute-force protection
                 security:
@@ -142,10 +129,8 @@ final class DefaultConfigGenerator {
                   ip-limit-registrations: 3 # Account registrations per IP
                   min-password-length: 4 # Inclusive minimum password length
                   max-password-length: 72 # Inclusive maximum password length""";
-    }
 
-    private static String premiumSection() {
-        return """
+    private static final String PREMIUM_SECTION = """
                 
                 # Premium account detection configuration
                 premium:
@@ -159,10 +144,8 @@ final class DefaultConfigGenerator {
                     hit-ttl-minutes: 10 # Cache TTL for positive hits
                     miss-ttl-minutes: 3 # Cache TTL for misses
                     case-sensitive: true # Preserve username case in resolver cache""";
-    }
 
-    private static String floodgateSection() {
-        return """
+    private static final String FLOODGATE_SECTION = """
                 
                 # Floodgate / Bedrock support configuration
                 # Must stay aligned with your Floodgate proxy config.
@@ -170,10 +153,8 @@ final class DefaultConfigGenerator {
                   enabled: false # Enable Floodgate-specific Bedrock handling in VeloAuth
                   username-prefix: "." # Match Floodgate's username-prefix; use "" if you removed the prefix
                   bypass-auth-server: true # Bedrock players authenticated by Floodgate can skip auth server""";
-    }
 
-    private static String alertsSection() {
-        return """
+    private static final String ALERTS_SECTION = """
                 
                 # Alert system configuration (optional - Discord webhook notifications)
                 alerts:
@@ -188,5 +169,4 @@ final class DefaultConfigGenerator {
                     enabled: false # Enable Discord webhook notifications
                     webhook-url: "" # Discord webhook URL (get from Discord server settings)
                     # Example: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN\"""";
-    }
 }

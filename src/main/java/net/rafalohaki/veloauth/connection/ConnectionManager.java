@@ -579,7 +579,7 @@ public class ConnectionManager {
 
             // Return the first available server (preserving try order)
             for (int i = 0; i < candidates.size(); i++) {
-                if (pings[i].join()) {
+                if (Boolean.TRUE.equals(pings[i].join())) {
                     RegisteredServer available = candidates.get(i);
                     logger.debug("Znaleziono dostępny serwer: {}", available.getServerInfo().getName());
                     return Optional.of(available);
