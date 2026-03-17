@@ -59,67 +59,75 @@ class AuthenticationFlowIntegrationTest {
     void setUp() {
         messages = new Messages();
         messages.setLanguage("en");
-        
-        java.nio.file.Path tempDir;
-        try {
-            tempDir = java.nio.file.Files.createTempDirectory("veloauth-it-config");
-        } catch (java.io.IOException e) {
-            tempDir = java.nio.file.Paths.get("target", "veloauth-it-config");
-            try { 
-                java.nio.file.Files.createDirectories(tempDir); 
-            } catch (java.io.IOException ignored) {
-                // Fallback directory creation failed, test will use non-existent path
-            }
-        }
+
+        java.nio.file.Path tempDir = createTempDirectory();
         settings = new Settings(tempDir);
         settings.load();
-        
+
         authCache = new AuthCache(
                 new AuthCache.AuthCacheConfig(60, 10000, 1000, 10000, 5, 5, 1, 60),
                 settings, messages
         );
-        
-        net.rafalohaki.veloauth.database.DatabaseConfig testConfig = 
-                net.rafalohaki.veloauth.database.DatabaseConfig.forLocalDatabase("H2", "memtest");
-        databaseManager = new TestDatabaseManager(testConfig, messages);
 
+        databaseManager = createTestDatabaseManager();
+        premiumResolverService = createPremiumResolverService(tempDir);
+        configureLoggerMocks();
+
+        Metrics.Factory metricsFactory = mock(Metrics.Factory.class);
+        plugin = new net.rafalohaki.veloauth.VeloAuth(proxyServer, logger, tempDir, metricsFactory);
+
+        preLoginHandler = new PreLoginHandler(
+                authCache, premiumResolverService, settings, databaseManager, messages, logger
+        );
+
+        configureSchedulerMocks();
+
+        postLoginHandler = new PostLoginHandler(authCache, databaseManager, messages, logger);
+    }
+
+    private java.nio.file.Path createTempDirectory() {
+        try {
+            return java.nio.file.Files.createTempDirectory("veloauth-it-config");
+        } catch (java.io.IOException e) {
+            java.nio.file.Path fallback = java.nio.file.Paths.get("target", "veloauth-it-config");
+            try {
+                java.nio.file.Files.createDirectories(fallback);
+            } catch (java.io.IOException ignored) {
+                // Fallback directory creation failed, test will use non-existent path
+            }
+            return fallback;
+        }
+    }
+
+    private TestDatabaseManager createTestDatabaseManager() {
+        net.rafalohaki.veloauth.database.DatabaseConfig testConfig =
+                net.rafalohaki.veloauth.database.DatabaseConfig.forLocalDatabase("H2", "memtest");
+        return new TestDatabaseManager(testConfig, messages);
+    }
+
+    private PremiumResolverService createPremiumResolverService(java.nio.file.Path tempDir) {
         try {
             com.j256.ormlite.jdbc.JdbcConnectionSource cs =
                     new com.j256.ormlite.jdbc.JdbcConnectionSource("jdbc:h2:mem:veloauth_premium");
             net.rafalohaki.veloauth.database.PremiumUuidDao premiumDao =
                     new net.rafalohaki.veloauth.database.PremiumUuidDao(cs);
-            premiumResolverService = new PremiumResolverService(logger, settings, premiumDao);
+            return new PremiumResolverService(logger, settings, premiumDao);
         } catch (java.sql.SQLException e) {
             throw new IllegalStateException("Failed to initialize PremiumUuidDao for test", e);
         }
-        
+    }
+
+    private void configureLoggerMocks() {
         when(logger.isDebugEnabled()).thenReturn(false);
         when(logger.isInfoEnabled()).thenReturn(false);
+    }
 
-        Metrics.Factory metricsFactory = mock(Metrics.Factory.class);
-        plugin = new net.rafalohaki.veloauth.VeloAuth(proxyServer, logger, tempDir, metricsFactory);
-        
-        preLoginHandler = new PreLoginHandler(
-                authCache,
-                premiumResolverService,
-                settings,
-                databaseManager,
-                messages,
-                logger
-        );
-        
+    private void configureSchedulerMocks() {
         when(proxyServer.getScheduler()).thenReturn(mock(com.velocitypowered.api.scheduler.Scheduler.class));
-        com.velocitypowered.api.scheduler.Scheduler.TaskBuilder taskBuilder = 
+        com.velocitypowered.api.scheduler.Scheduler.TaskBuilder taskBuilder =
                 mock(com.velocitypowered.api.scheduler.Scheduler.TaskBuilder.class);
         when(proxyServer.getScheduler().buildTask(any(), any(Runnable.class))).thenReturn(taskBuilder);
         when(taskBuilder.schedule()).thenReturn(mock(com.velocitypowered.api.scheduler.ScheduledTask.class));
-        
-        postLoginHandler = new PostLoginHandler(
-                authCache,
-                databaseManager,
-                messages,
-                logger
-        );
     }
 
     /**

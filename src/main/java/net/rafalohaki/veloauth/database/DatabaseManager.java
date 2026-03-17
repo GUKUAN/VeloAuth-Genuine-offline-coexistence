@@ -294,26 +294,17 @@ public class DatabaseManager {
     public CompletableFuture<DbResult<RegisteredPlayer>> findPlayerByUuidOrNickname(
             String nickname, UUID premiumUuid) {
         String normalizedNickname = normalizeNickname(nickname);
-        CompletableFuture<DbResult<RegisteredPlayer>> earlyExit = validateLookupPreconditions(normalizedNickname);
-        if (earlyExit != null) {
-            return earlyExit;
+        if (normalizedNickname == null) {
+            return CompletableFuture.completedFuture(DbResult.success(null));
         }
-
-        return CompletableFuture.supplyAsync(() -> {
-            DbResult<RegisteredPlayer> byNick = performPlayerLookup(normalizedNickname, nickname, true);
-            if (byNick.isDatabaseError() || byNick.getValue() != null) {
+        return lookupPlayer(nickname, true).thenApplyAsync(byNick -> {
+            if (byNick.isDatabaseError() || byNick.getValue() != null || premiumUuid == null) {
                 return byNick;
             }
-
-            if (premiumUuid == null) {
-                return DbResult.success(null);
-            }
-
             DbResult<Void> connectionResult = validateDatabaseConnection();
             if (connectionResult.isDatabaseError()) {
                 return DbResult.databaseError(connectionResult.getErrorMessage());
             }
-
             return findAndMigrateByPremiumUuid(normalizedNickname, nickname, premiumUuid);
         }, dbExecutor);
     }

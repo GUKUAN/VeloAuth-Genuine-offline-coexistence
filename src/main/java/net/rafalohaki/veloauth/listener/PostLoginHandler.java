@@ -14,6 +14,8 @@ import org.slf4j.Logger;
 import java.util.Optional;
 import java.util.UUID;
 
+import static java.util.Objects.requireNonNull;
+
 /**
  * Handles post-login routing and conflict resolution logic.
  * Extracted from AuthListener to reduce complexity and improve testability.
@@ -37,10 +39,10 @@ public class PostLoginHandler {
                            DatabaseManager databaseManager,
                            Messages messages,
                            Logger logger) {
-        this.authCache = java.util.Objects.requireNonNull(authCache, "authCache");
-        this.databaseManager = java.util.Objects.requireNonNull(databaseManager, "databaseManager");
-        this.messages = java.util.Objects.requireNonNull(messages, "messages");
-        this.logger = java.util.Objects.requireNonNull(logger, "logger");
+        this.authCache = requireNonNull(authCache, "authCache");
+        this.databaseManager = requireNonNull(databaseManager, "databaseManager");
+        this.messages = requireNonNull(messages, "messages");
+        this.logger = requireNonNull(logger, "logger");
     }
 
     /**
