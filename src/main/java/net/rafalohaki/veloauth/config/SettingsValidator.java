@@ -125,24 +125,45 @@ public final class SettingsValidator {
             return;
         }
 
+        String prefix = requireFloodgatePrefix(settings);
+        validateFloodgatePrefix(prefix);
+        warnAboutFloodgateConfiguration(prefix);
+    }
+
+    private static String requireFloodgatePrefix(Settings settings) {
         String prefix = settings.getFloodgateUsernamePrefix();
         if (prefix == null) {
             throw new IllegalArgumentException("Floodgate username prefix must not be null");
         }
+        return prefix;
+    }
+
+    private static void validateFloodgatePrefix(String prefix) {
         if (prefix.length() > 16) {
             throw new IllegalArgumentException("Floodgate username prefix must be at most 16 characters");
         }
         if (prefix.chars().anyMatch(Character::isWhitespace)) {
             throw new IllegalArgumentException("Floodgate username prefix must not contain whitespace");
         }
-        if (!prefix.isEmpty() && prefix.chars().allMatch(c -> Character.isLetterOrDigit(c) || c == '_')) {
-            logger.warn("Floodgate username prefix '{}' is alphanumeric; this increases the risk of username collisions", prefix);
-        }
-        if (settings.isFloodgateIntegrationEnabled() && prefix.isEmpty()) {
+    }
+
+    private static void warnAboutFloodgateConfiguration(String prefix) {
+        if (prefix.isEmpty()) {
             logger.warn("Floodgate integration is enabled with an empty username prefix; ensure Java and Bedrock usernames cannot collide");
         }
-        if (settings.isFloodgateIntegrationEnabled() && !FloodgateDetector.isFloodgateAvailable()) {
+        if (isCollisionPronePrefix(prefix)) {
+            logger.warn("Floodgate username prefix '{}' is alphanumeric; this increases the risk of username collisions", prefix);
+        }
+        if (!FloodgateDetector.isFloodgateAvailable()) {
             logger.warn("Floodgate integration is enabled in config but Floodgate plugin is not loaded; Bedrock player detection will not work");
         }
+    }
+
+    private static boolean isCollisionPronePrefix(String prefix) {
+        return !prefix.isEmpty() && prefix.chars().allMatch(SettingsValidator::isUsernameSafeCharacter);
+    }
+
+    private static boolean isUsernameSafeCharacter(int value) {
+        return Character.isLetterOrDigit(value) || value == '_';
     }
 }

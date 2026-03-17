@@ -36,7 +36,9 @@ public class Settings {
     private final PremiumSettings premiumSettings = new PremiumSettings();
     private final FloodgateSettings floodgateSettings = new FloodgateSettings();
     private final AlertSettings alertSettings = new AlertSettings();
+    @SuppressWarnings("java:S2068")
     private static final String DEFAULT_DATABASE_NAME = "veloauth";
+    @SuppressWarnings("java:S2068")
     private static final String CONFIG_KEY_TIMEOUT_SECONDS = "timeout-seconds";
     
     // Database settings
