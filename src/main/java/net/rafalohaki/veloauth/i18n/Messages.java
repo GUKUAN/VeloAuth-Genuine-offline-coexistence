@@ -300,19 +300,19 @@ public class Messages {
             }
         } else {
             // Legacy mode: check JAR resources (built-in languages only)
-            return "en".equals(lang) || "pl".equals(lang);
+            return BuiltInLanguages.isBuiltIn(lang);
         }
     }
 
     /**
      * Gets all supported language codes.
-     * Returns built-in languages (en, pl) - users can add custom languages by placing
+    * Returns built-in languages bundled with the plugin. Users can still add custom languages by placing
      * messages_*.properties files in the lang directory.
      *
      * @return Array of built-in language codes
      */
     public String[] getSupportedLanguages() {
-        return new String[]{"en", "pl"};
+        return BuiltInLanguages.codes();
     }
 
     /**

@@ -157,7 +157,7 @@ public class AuthListener {
     public EventTask onPreLogin(PreLoginEvent event) {
         String username = event.getUsername();
         if (logger.isDebugEnabled()) {
-            logger.debug("\uD83D\uDD0D PreLogin: {}", username);
+            logger.debug("PreLogin: {}", username);
         }
 
         if (!validatePreLoginConditions(event, username)) {
@@ -165,7 +165,7 @@ public class AuthListener {
         }
 
         if (!settings.isPremiumCheckEnabled()) {
-            logger.debug("Premium check wyłączony w konfiguracji - wymuszam offline mode dla {}", username);
+            logger.debug("Premium check disabled in config - forcing offline mode for {}", username);
             event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
             return null;
         }
@@ -188,7 +188,7 @@ public class AuthListener {
 
     private boolean validatePluginInitialized(PreLoginEvent event, String username) {
         if (!plugin.isInitialized()) {
-            logger.warn("🔒 STARTUP BLOCK: Player {} tried to connect before VeloAuth fully initialized - PreLogin block", username);
+            logger.warn("STARTUP BLOCK: Player {} tried to connect before VeloAuth fully initialized - PreLogin block", username);
             String msg = messages != null ? messages.get("system.starting") : "VeloAuth is starting. Please wait.";
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(Component.text(msg, NamedTextColor.RED)));
             return false;
@@ -260,7 +260,7 @@ public class AuthListener {
     }
 
     private void denyLoginOnApiFailure(PreLoginEvent event, String username) {
-        logger.error("[SECURITY] Login DENIED for {} — cannot verify premium status (all API resolvers failed)",
+        logger.error("[SECURITY] Login DENIED for {} - cannot verify premium status (all API resolvers failed)",
                 username);
         event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
                 Component.text(messages.get("security.api_failure.denied"), NamedTextColor.RED)));
@@ -336,7 +336,7 @@ public class AuthListener {
         // CRITICAL SECURITY: Block login attempts until plugin is fully initialized
         if (!plugin.isInitialized()) {
             logger.warn(
-                "🔒 STARTUP BLOCK: Player {} tried to login before VeloAuth fully initialized - login block",
+                "STARTUP BLOCK: Player {} tried to login before VeloAuth fully initialized - login block",
                 playerName);
             // Use English fallback - Messages not available yet
             event.setResult(ComponentResult.denied(
@@ -345,7 +345,7 @@ public class AuthListener {
             return;
         }
 
-        logger.debug("LoginEvent dla gracza {} (UUID: {}) z IP {}",
+        logger.debug("LoginEvent for player {} (UUID: {}) from IP {}",
             playerName, playerUuid, playerIp);
 
         // 1. Check brute force block
@@ -379,7 +379,7 @@ public class AuthListener {
         connectionManager.clearRetryAttempts(player.getUniqueId());
 
         if (logger.isDebugEnabled()) {
-            logger.debug("Gracz {} rozłączył się - sesja pozostaje aktywna", player.getUsername());
+            logger.debug("Player {} disconnected - session remains active", player.getUsername());
         }
     }
 
@@ -392,7 +392,7 @@ public class AuthListener {
         Player player = event.getPlayer();
         String playerIp = PlayerAddressUtils.getPlayerIp(player);
 
-        logger.debug("PostLoginEvent dla gracza {} z IP {}",
+        logger.debug("PostLoginEvent for player {} with IP {}",
                 player.getUsername(), playerIp);
 
         // DEFENSE-IN-DEPTH: Verify handlers are initialized
@@ -461,7 +461,7 @@ public class AuthListener {
             // getOriginalServer() to INPUT field (dokąd gracz chce iść)
             String targetServerName = event.getOriginalServer().getServerInfo().getName();
 
-            logger.debug("ServerPreConnectEvent dla gracza {} -> serwer {}",
+                logger.debug("ServerPreConnectEvent for player {} -> server {}",
                     player.getUsername(), targetServerName);
 
             if (handleFirstConnection(event, player, targetServerName)) {
@@ -477,7 +477,7 @@ public class AuthListener {
             return EventTask.resumeWhenComplete(verifyBackendConnectionAsync(event, player, targetServerName));
 
         } catch (Exception e) {
-            logger.error("Błąd w ServerPreConnect", e);
+            logger.error("Error in ServerPreConnect", e);
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
             return null;
         }
@@ -492,7 +492,7 @@ public class AuthListener {
             
             // Jeśli cel to już auth server - pozwól
             if (targetServerName.equals(authServerName)) {
-                logger.debug("Pierwsze połączenie {} -> auth server - pozwalam", player.getUsername());
+                logger.debug("First connection {} -> auth server - allowing", player.getUsername());
                 return true;
             }
 
@@ -501,7 +501,7 @@ public class AuthListener {
             // phase, before this event fires. Redirecting to limbo causes
             // ClientboundLevelChunkWithLightPacket translation failures in Geyser.
             if (isBedrockPlayer(player)) {
-                logger.info("[FLOODGATE] Bedrock player {} → {} (skipping auth server)",
+                logger.info("[FLOODGATE] Bedrock player {} -> {} (skipping auth server)",
                         player.getUsername(), targetServerName);
                 return true;
             }
@@ -514,7 +514,7 @@ public class AuthListener {
             // Przekieruj na auth server zamiast backend
             Optional<RegisteredServer> authServer = plugin.getServer().getServer(authServerName);
             if (authServer.isPresent()) {
-                logger.debug("Pierwsze połączenie {} -> {} - przekierowuję na auth server (forced host target saved)", 
+                logger.debug("First connection {} -> {} - redirecting to auth server (forced host target saved)",
                         player.getUsername(), targetServerName);
                 event.setResult(ServerPreConnectEvent.ServerResult.allowed(authServer.get()));
             } else {
@@ -535,12 +535,12 @@ public class AuthListener {
             boolean isAuthorized = authCache.isPlayerAuthorized(player.getUniqueId(), playerIp);
             if (isAuthorized) {
                 // AUTORYZOWANY GRACZ NA AUTH SERVER - przekieruj na backend
-                logger.debug("Autoryzowany gracz {} próbuje iść na auth server - przekierowuję na backend",
+                logger.debug("Authorized player {} tried to go to auth server - redirecting to backend",
                         player.getUsername());
                 event.setResult(ServerPreConnectEvent.ServerResult.denied());
                 connectionManager.autoTransferFromAuthServerToBackend(player);
             } else {
-                logger.debug("Auth server - pozwól (gracz nie jest autoryzowany)");
+                logger.debug("Auth server - allowing unauthenticated player");
             }
             return true;
         }
@@ -549,7 +549,7 @@ public class AuthListener {
 
     private CompletableFuture<Void> verifyBackendConnectionAsync(ServerPreConnectEvent event, Player player, String targetServerName) {
         if (isBedrockPlayer(player)) {
-            logger.info("[FLOODGATE] Bedrock player {} → {} (skipping auth server)",
+            logger.info("[FLOODGATE] Bedrock player {} -> {} (skipping auth server)",
                     player.getUsername(), targetServerName);
             return CompletableFuture.completedFuture(null);
         }
@@ -568,7 +568,7 @@ public class AuthListener {
                         handleUnauthorizedConnection(event, player, targetServerName, isAuthorized, hasActiveSession, uuidMatches, playerIp);
                     } else {
                         // ✅ WSZYSTKIE WERYFIKACJE PRZESZŁY - POZWÓL
-                        logger.debug("\u2705 Autoryzowany gracz {} idzie na {} (sesja: OK, UUID: OK)",
+                        logger.debug("Authorized player {} heading to {} (session: OK, UUID: OK)",
                                 player.getUsername(), targetServerName);
                     }
                 });
@@ -580,7 +580,8 @@ public class AuthListener {
         String reason = resolveBlockReason(isAuthorized, hasActiveSession);
 
         if (logger.isDebugEnabled()) {
-            logger.debug(messages.get("player.blocked.unauthorized", player.getUsername(), targetServerName, reason, playerIp));
+            logger.debug("Blocked unauthorized backend access for {} -> {} (reason: {}, ip: {})",
+                    player.getUsername(), targetServerName, reason, playerIp);
         }
 
         event.setResult(ServerPreConnectEvent.ServerResult.denied());
@@ -647,7 +648,7 @@ public class AuthListener {
 
     private void triggerAutoTransfer(Player player) {
         if (logger.isDebugEnabled()) {
-            logger.debug("Gracz {} jest zweryfikowany w cache - uruchamiam auto-transfer na backend",
+                logger.debug("Player {} is verified in cache - starting auto-transfer to backend",
                     player.getUsername());
         }
         connectionManager.autoTransferFromAuthServerToBackend(player);

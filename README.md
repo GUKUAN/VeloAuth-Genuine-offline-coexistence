@@ -27,7 +27,7 @@ VeloAuth is a comprehensive authentication system for Velocity proxy that handle
 - 🔄 **Conflict Resolution** - Smart handling of premium/cracked nickname conflicts
 - 📊 **Admin Tools** - Complete conflict management with `/vauth conflicts`
 - 🗄️ **Multi-Database** - MySQL, PostgreSQL, H2, SQLite
-- 🌍 **8 Languages** - EN, PL, DE, FR, RU, TR, SI, FI
+- 🌍 **17 Languages** - EN, PL, DE, FR, RU, TR, SI, FI, ZH_CN, ZH_HK, JA, HI, VI, KO, TH, ID, PT_BR
 - 🔄 **LimboAuth Compatible** - 100% database compatibility (no migration needed)
 - 📢 **Discord Alerts** - Webhook notifications for security events
 - 🧵 **Virtual Threads** - Built on Java 21 for maximum performance
@@ -77,10 +77,35 @@ try = ["lobby", "survival"]  # Order matters. Do NOT put 'limbo' here.
 Minimal auth server configuration in `plugins/VeloAuth/config.yml`:
 
 ```yaml
+language: en
+# Built-in language codes: "en", "pl", "si", "ru", "tr", "fr", "de", "fi", "zh_cn", "zh_hk", "ja", "hi", "vi", "ko", "th", "id", "pt_br"
+
 auth-server:
   server-name: limbo
   timeout-seconds: 300
 ```
+
+Built-in language codes you can copy directly into config:
+
+| Code | Language |
+|------|----------|
+| `en` | English |
+| `pl` | Polish |
+| `si` | Slovenian |
+| `ru` | Russian |
+| `tr` | Turkish |
+| `fr` | French |
+| `de` | German |
+| `fi` | Finnish |
+| `zh_cn` | Chinese Simplified |
+| `zh_hk` | Chinese Traditional (Hong Kong) |
+| `ja` | Japanese |
+| `hi` | Hindi |
+| `vi` | Vietnamese |
+| `ko` | Korean |
+| `th` | Thai |
+| `id` | Indonesian |
+| `pt_br` | Brazilian Portuguese |
 
 Optional Floodgate integration:
 

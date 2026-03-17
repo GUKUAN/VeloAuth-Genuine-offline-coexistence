@@ -19,7 +19,6 @@ import java.util.ResourceBundle;
 public final class LanguageFileManager {
     
     private static final Logger logger = LoggerFactory.getLogger(LanguageFileManager.class);
-    private static final String ENGLISH_FILE = "messages_en.properties";
     private static final String MESSAGES_PREFIX = "messages_";
     private static final String PROPERTIES_SUFFIX = ".properties";
     // Internal resource path within the JAR, not an external URI
@@ -50,18 +49,9 @@ public final class LanguageFileManager {
             logger.info("Created language directory: {}", langDirectory);
         }
         
-        // Copy all built-in language files from JAR if they don't exist externally
-        // English is always required as the base/fallback language
-        copyLanguageFileFromJar(ENGLISH_FILE);
-        
-        // Copy other built-in languages (add more here as they are added to resources/lang/)
-        copyLanguageFileFromJar("messages_pl.properties");
-        copyLanguageFileFromJar("messages_si.properties");
-        copyLanguageFileFromJar("messages_ru.properties");
-        copyLanguageFileFromJar("messages_tr.properties");
-        copyLanguageFileFromJar("messages_fr.properties");
-        copyLanguageFileFromJar("messages_de.properties");
-        copyLanguageFileFromJar("messages_fi.properties");
+        for (String fileName : BuiltInLanguages.fileNames()) {
+            copyLanguageFileFromJar(fileName);
+        }
     }
     
     /**
@@ -205,7 +195,7 @@ public final class LanguageFileManager {
         
         if (!Files.exists(languageFile)) {
             logger.warn("Language file not found: {}, falling back to English", filename);
-            languageFile = langDirectory.resolve(ENGLISH_FILE);
+            languageFile = langDirectory.resolve(BuiltInLanguages.englishFileName());
         }
         
         if (!Files.exists(languageFile)) {
@@ -213,7 +203,7 @@ public final class LanguageFileManager {
         }
         
         // For non-English languages, fill missing keys from English
-        if (!"en".equals(language) && Files.exists(langDirectory.resolve(filename))) {
+        if (!BuiltInLanguages.englishCode().equals(language) && Files.exists(langDirectory.resolve(filename))) {
             fillMissingKeysFromEnglish(language);
         }
         
@@ -237,7 +227,7 @@ public final class LanguageFileManager {
      * @throws IOException if file creation fails
      */
     private void createCustomLanguageFile(String language) throws IOException {
-        Path englishFile = langDirectory.resolve(ENGLISH_FILE);
+        Path englishFile = langDirectory.resolve(BuiltInLanguages.englishFileName());
         Path targetFile = langDirectory.resolve(MESSAGES_PREFIX + language + PROPERTIES_SUFFIX);
         
         if (!Files.exists(englishFile)) {
@@ -265,7 +255,7 @@ public final class LanguageFileManager {
      * @param language The language code (e.g., "de", "fr")
      */
     private void fillMissingKeysFromEnglish(String language) {
-        Path englishFile = langDirectory.resolve(ENGLISH_FILE);
+        Path englishFile = langDirectory.resolve(BuiltInLanguages.englishFileName());
         Path targetFile = langDirectory.resolve(MESSAGES_PREFIX + language + PROPERTIES_SUFFIX);
         
         if (!Files.exists(englishFile) || !Files.exists(targetFile)) {

@@ -51,7 +51,7 @@ public class PostLoginHandler {
      */
     public void handlePremiumPlayer(Player player, String playerIp) {
         if (logger.isInfoEnabled()) {
-            logger.info(messages.get("player.premium.verified", player.getUsername()));
+            logger.info("Premium player {} verified", player.getUsername());
         }
 
         UUID playerUuid = player.getUniqueId();
@@ -88,14 +88,14 @@ public class PostLoginHandler {
     public void handleOfflinePlayer(Player player, String playerIp) {
         if (authCache.isPlayerAuthorized(player.getUniqueId(), playerIp)) {
             if (logger.isDebugEnabled()) {
-                logger.debug("\u2705 Gracz {} jest już autoryzowany - ServerPreConnectEvent przekieruje na backend",
+                logger.debug("Player {} is already authorized - ServerPreConnectEvent will route to backend",
                         player.getUsername());
             }
             return;
         }
 
         if (logger.isDebugEnabled()) {
-            logger.debug("Gracz {} nie jest autoryzowany - ServerPreConnectEvent przekieruje na auth server", 
+            logger.debug("Player {} is not authorized - ServerPreConnectEvent will route to auth server",
                     player.getUsername());
         }
         // ServerPreConnectEvent will redirect to auth server automatically

@@ -1,5 +1,6 @@
 package net.rafalohaki.veloauth.config;
 
+import net.rafalohaki.veloauth.i18n.BuiltInLanguages;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -14,6 +15,7 @@ import java.nio.file.Path;
 class DefaultConfigGenerator {
 
     private static final Logger logger = LoggerFactory.getLogger(DefaultConfigGenerator.class);
+  private static final String BUILT_IN_LANGUAGE_CODES_PLACEHOLDER = "__BUILT_IN_LANGUAGE_CODES__";
 
     private DefaultConfigGenerator() {}
 
@@ -21,12 +23,14 @@ class DefaultConfigGenerator {
      * Creates the default config.yml file if it doesn't exist.
      */
     static void createDefaultConfig(Path configFile) throws IOException {
-        String defaultConfig = """
+      String defaultConfig = """
                 # VeloAuth Configuration
                 # Complete Velocity Authentication Plugin
                 
-                # Language configuration (built-in: en, pl; custom languages supported)
-                language: en # Plugin language: en = English, pl = Polski
+        # Language configuration (built-in languages listed below; custom languages supported)
+        language: en
+                # Available built-in language codes: __BUILT_IN_LANGUAGE_CODES__
+        # Examples: en=English, pl=Polski, zh_cn=Chinese Simplified, zh_hk=Chinese Traditional (Hong Kong), ja=Japanese, ko=Korean, th=Thai, id=Indonesian, pt_br=Brazilian Portuguese
                 # To add custom language: create messages_XX.properties in plugins/VeloAuth/lang/
                 
                 # Debug settings (enable for detailed logging)
@@ -129,7 +133,7 @@ class DefaultConfigGenerator {
                     enabled: false # Enable Discord webhook notifications
                     webhook-url: "" # Discord webhook URL (get from Discord server settings)
                     # Example: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
-                """;
+                """.replace(BUILT_IN_LANGUAGE_CODES_PLACEHOLDER, BuiltInLanguages.quotedCodeList());
 
         Files.writeString(configFile, defaultConfig);
         logger.info("Utworzono domyślny plik konfiguracji");

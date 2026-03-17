@@ -112,7 +112,7 @@ public class PreLoginHandler {
     /**
      * Async version of resolvePremiumStatus — returns CompletableFuture to avoid blocking Netty IO thread.
      * On cache hit, returns immediately via completedFuture.
-     * On cache miss, resolves via API asynchronously with 1.5s timeout.
+        * On cache miss, resolves via PremiumResolverService asynchronously.
      *
      * @param username Username to check
      * @return CompletableFuture with PremiumResolutionResult (may be null on UNKNOWN/API failure)
@@ -120,7 +120,7 @@ public class PreLoginHandler {
     public CompletableFuture<PremiumResolutionResult> resolvePremiumStatusAsync(String username) {
         PremiumCacheEntry cachedStatus = authCache.getPremiumStatus(username);
         if (cachedStatus != null) {
-            logger.debug("Premium cache hit dla {} -> {} (age: {}ms, TTL: {}ms)",
+            logger.debug("Premium cache hit for {} -> {} (age: {}ms, TTL: {}ms)",
                     username, cachedStatus.isPremium(), cachedStatus.getAgeMillis(), cachedStatus.getTtlMillis());
 
             if (cachedStatus.isStale()) {
@@ -133,14 +133,26 @@ public class PreLoginHandler {
 
         // Cache miss — async resolution (does NOT block Netty IO thread)
         return CompletableFuture.supplyAsync(() -> premiumResolverService.resolve(username))
-                .orTimeout(1500, TimeUnit.MILLISECONDS)
                 .exceptionally(throwable -> {
-                    logger.warn("Premium resolution timeout/error for {} — fallback to offline: {}",
-                            username, throwable.getMessage());
+                    logger.warn("Premium resolution failed for {} - fallback to offline: {}",
+                            username, describeThrowable(throwable));
                     return PremiumResolution.offline(username, "VeloAuth-Timeout",
                             "Timeout - fallback to offline");
                 })
                 .thenApply(resolution -> cacheFromResolution(username, resolution));
+    }
+
+    private String describeThrowable(Throwable throwable) {
+        if (throwable == null) {
+            return "unknown cause";
+        }
+
+        String message = throwable.getMessage();
+        if (message != null && !message.isBlank()) {
+            return message;
+        }
+
+        return throwable.getClass().getSimpleName();
     }
 
     /**
@@ -300,13 +312,14 @@ public class PreLoginHandler {
             String canonical = resolution.canonicalUsername() != null ? resolution.canonicalUsername() : username;
             authCache.addPremiumPlayer(canonical, premiumUuid);
             if (logger.isInfoEnabled()) {
-                logger.info(messages.get("player.premium.confirmed", username, resolution.source(), premiumUuid));
+                logger.info("Premium player {} confirmed (source: {}, UUID: {})",
+                        username, resolution.source(), premiumUuid);
             }
             return new PremiumResolutionResult(true, premiumUuid);
         }
         if (resolution.isOffline()) {
             authCache.addPremiumPlayer(username, null);
-            logger.debug("{} nie jest premium (resolver: {}, info: {})", username, resolution.source(),
+            logger.debug("{} is not premium (resolver: {}, info: {})", username, resolution.source(),
                     resolution.message());
             return new PremiumResolutionResult(false, null);
         }
@@ -315,7 +328,7 @@ public class PreLoginHandler {
         // Hybrid approach: DB cache was already checked in PremiumResolverService.resolve(),
         // so reaching here means this is a new player with no cached premium status.
         // Deny login for security — cannot verify premium status.
-        logger.error("[SECURITY] Cannot verify premium status for {} — all API resolvers failed " +
+        logger.error("[SECURITY] Cannot verify premium status for {} - all API resolvers failed " +
                 "(resolver: {}, info: {}). Login denied for safety.",
                 username, resolution.source(), resolution.message());
         return null;
