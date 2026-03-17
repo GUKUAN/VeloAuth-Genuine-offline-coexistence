@@ -103,6 +103,7 @@ class SimpleMessagesKeysTest {
             "admin.help.cache",
             "admin.help.stats",
             "admin.help.conflicts",
+            "admin.unknown_command",
             // Admin reload messages
             "admin.reload.success",
             "admin.reload.failed",

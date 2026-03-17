@@ -256,10 +256,7 @@ public class ConnectionManager {
         } catch (Exception e) {
             logger.error("Error transferring player to backend: {}", player.getUsername(), e);
 
-            player.sendMessage(Component.text(
-                    messages.get(CONNECTION_ERROR_GAME_SERVER),
-                    NamedTextColor.RED
-            ));
+            sendErrorMessage(player);
             return false;
         }
     }

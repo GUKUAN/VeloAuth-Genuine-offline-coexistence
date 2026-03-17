@@ -526,6 +526,12 @@ public class AuthListener {
     }
 
     private CompletableFuture<Void> verifyBackendConnectionAsync(ServerPreConnectEvent event, Player player, String targetServerName) {
+        if (FloodgateDetector.isBedrockPlayer(player.getUniqueId())) {
+            logger.info("[FLOODGATE] Bedrock player {} → {} (skipping auth server)",
+                    player.getUsername(), targetServerName);
+            return CompletableFuture.completedFuture(null);
+        }
+
         String playerIp = PlayerAddressUtils.getPlayerIp(player);
         boolean isAuthorized = authCache.isPlayerAuthorized(player.getUniqueId(), playerIp);
 
