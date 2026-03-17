@@ -21,6 +21,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Supplier;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -292,15 +293,14 @@ public class DatabaseManager {
      */
     public CompletableFuture<DbResult<RegisteredPlayer>> findPlayerByUuidOrNickname(
             String nickname, UUID premiumUuid) {
-        if (nickname == null || nickname.isEmpty()) {
+        String normalizedNickname = normalizeNickname(nickname);
+        if (normalizedNickname == null) {
             return CompletableFuture.completedFuture(DbResult.success(null));
         }
-        if (dbExecutor.isShutdown()) {
-            return CompletableFuture.completedFuture(
-                    DbResult.databaseError(messages.get(DATABASE_ERROR) + EXECUTOR_SHUTTING_DOWN));
+        DbResult<RegisteredPlayer> executorState = checkExecutorState();
+        if (executorState != null) {
+            return CompletableFuture.completedFuture(executorState);
         }
-
-        String normalizedNickname = nickname.toLowerCase();
 
         return CompletableFuture.supplyAsync(() -> {
             DbResult<RegisteredPlayer> byNick = performPlayerLookup(normalizedNickname, nickname, true);
@@ -354,17 +354,30 @@ public class DatabaseManager {
     }
 
     private CompletableFuture<DbResult<RegisteredPlayer>> lookupPlayer(String nickname, boolean runtimeDetection) {
-        if (nickname == null || nickname.isEmpty()) {
+        String normalizedNickname = normalizeNickname(nickname);
+        if (normalizedNickname == null) {
             return CompletableFuture.completedFuture(DbResult.success(null));
         }
-
-        if (dbExecutor.isShutdown()) {
-            return CompletableFuture.completedFuture(DbResult.databaseError(messages.get(DATABASE_ERROR) + EXECUTOR_SHUTTING_DOWN));
+        DbResult<RegisteredPlayer> executorState = checkExecutorState();
+        if (executorState != null) {
+            return CompletableFuture.completedFuture(executorState);
         }
 
-        String normalizedNickname = nickname.toLowerCase();
-
         return CompletableFuture.supplyAsync(() -> performPlayerLookup(normalizedNickname, nickname, runtimeDetection), dbExecutor);
+    }
+
+    private String normalizeNickname(String nickname) {
+        if (nickname == null || nickname.isEmpty()) {
+            return null;
+        }
+        return nickname.toLowerCase();
+    }
+
+    private <T> DbResult<T> checkExecutorState() {
+        if (dbExecutor.isShutdown()) {
+            return DbResult.databaseError(messages.get(DATABASE_ERROR) + EXECUTOR_SHUTTING_DOWN);
+        }
+        return null;
     }
 
     private DbResult<RegisteredPlayer> performPlayerLookup(String normalizedNickname, String originalNickname, boolean runtimeDetection) {
@@ -470,18 +483,7 @@ public class DatabaseManager {
             return CompletableFuture.completedFuture(DbResult.success(false));
         }
 
-        if (dbExecutor.isShutdown()) {
-            return CompletableFuture.completedFuture(DbResult.databaseError(messages.get(DATABASE_ERROR) + EXECUTOR_SHUTTING_DOWN));
-        }
-
-        return CompletableFuture.supplyAsync(() -> {
-            DbResult<Void> connectionResult = validateDatabaseConnection();
-            if (connectionResult.isDatabaseError()) {
-                return DbResult.databaseError(connectionResult.getErrorMessage());
-            }
-
-            return executePlayerSave(player);
-        }, dbExecutor);
+        return submitConnectedTask(() -> executePlayerSave(player));
     }
 
     private DbResult<Void> validateDatabaseConnection() {
@@ -515,8 +517,17 @@ public class DatabaseManager {
     }
     
     private void notifyAuthCacheOfUpdate(RegisteredPlayer player) {
-        if (authCacheRef == null) {
+        net.rafalohaki.veloauth.cache.AuthCache authCache = resolveAuthCacheForUpdate();
+        if (authCache == null) {
             return;
+        }
+
+        invalidateAuthCachePlayerData(authCache, player);
+    }
+
+    private net.rafalohaki.veloauth.cache.AuthCache resolveAuthCacheForUpdate() {
+        if (authCacheRef == null) {
+            return null;
         }
 
         net.rafalohaki.veloauth.cache.AuthCache authCache = authCacheRef.get();
@@ -524,9 +535,14 @@ public class DatabaseManager {
             if (logger.isDebugEnabled()) {
                 logger.debug(DB_MARKER, "AuthCache reference is null (GC collected) - skipping cache invalidation");
             }
-            return;
+            return null;
         }
 
+        return authCache;
+    }
+
+    private void invalidateAuthCachePlayerData(net.rafalohaki.veloauth.cache.AuthCache authCache,
+                                               RegisteredPlayer player) {
         try {
             UUID playerUuid = UUID.fromString(player.getUuid());
             authCache.invalidatePlayerData(playerUuid);
@@ -551,11 +567,19 @@ public class DatabaseManager {
      * Usuwa gracza z bazy danych i odświeża cache.
      */
     public CompletableFuture<DbResult<Boolean>> deletePlayer(String nickname) {
-        if (nickname == null || nickname.isEmpty()) {
+        String normalizedNickname = normalizeNickname(nickname);
+        if (normalizedNickname == null) {
             return CompletableFuture.completedFuture(DbResult.success(false));
         }
 
-        String normalizedNickname = nickname.toLowerCase();
+        return submitConnectedTask(() -> executePlayerDelete(normalizedNickname));
+    }
+
+    private <T> CompletableFuture<DbResult<T>> submitConnectedTask(Supplier<DbResult<T>> task) {
+        DbResult<T> executorState = checkExecutorState();
+        if (executorState != null) {
+            return CompletableFuture.completedFuture(executorState);
+        }
 
         return CompletableFuture.supplyAsync(() -> {
             DbResult<Void> connectionResult = validateDatabaseConnection();
@@ -563,7 +587,7 @@ public class DatabaseManager {
                 return DbResult.databaseError(connectionResult.getErrorMessage());
             }
 
-            return executePlayerDelete(normalizedNickname);
+            return task.get();
         }, dbExecutor);
     }
 

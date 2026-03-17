@@ -3,7 +3,6 @@ package net.rafalohaki.veloauth.command;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.rafalohaki.veloauth.config.Settings;
-import net.rafalohaki.veloauth.i18n.Messages;
 
 /**
  * Utility class for common validation operations across commands.

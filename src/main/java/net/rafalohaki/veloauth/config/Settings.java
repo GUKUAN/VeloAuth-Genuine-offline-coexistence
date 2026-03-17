@@ -239,23 +239,32 @@ public class Settings {
         if (premiumSection instanceof Map<?, ?>) {
             @SuppressWarnings("unchecked")
             Map<String, Object> premium = (Map<String, Object>) premiumSection;
-            premiumSettings.setCheckEnabled(YamlParserUtils.getBoolean(premium, "check-enabled", premiumSettings.isCheckEnabled()));
-            premiumSettings.setOnlineModeNeedAuth(YamlParserUtils.getBoolean(premium, "online-mode-need-auth", premiumSettings.isOnlineModeNeedAuth()));
-
-            if (premium.containsKey("premium-uuid-resolver")) {
-                logger.warn("Detected legacy key premium.premium-uuid-resolver — ignoring. Configure premium.resolver.* instead");
-            }
-
-            Object resolverSection = premium.get("resolver");
-            if (resolverSection instanceof Map<?, ?>) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> resolver = (Map<String, Object>) resolverSection;
-                applyResolverSettings(resolver);
-            }
+            applyPremiumCoreSettings(premium);
+            warnAboutLegacyPremiumKeys(premium);
+            applyPremiumResolverSection(premium.get("resolver"));
         }
 
         if (config.containsKey("premium-resolver")) {
             logger.warn("Detected legacy section premium-resolver — ignoring. Configure premium.resolver.* instead");
+        }
+    }
+
+    private void applyPremiumCoreSettings(Map<String, Object> premium) {
+        premiumSettings.setCheckEnabled(YamlParserUtils.getBoolean(premium, "check-enabled", premiumSettings.isCheckEnabled()));
+        premiumSettings.setOnlineModeNeedAuth(YamlParserUtils.getBoolean(premium, "online-mode-need-auth", premiumSettings.isOnlineModeNeedAuth()));
+    }
+
+    private void warnAboutLegacyPremiumKeys(Map<String, Object> premium) {
+        if (premium.containsKey("premium-uuid-resolver")) {
+            logger.warn("Detected legacy key premium.premium-uuid-resolver — ignoring. Configure premium.resolver.* instead");
+        }
+    }
+
+    private void applyPremiumResolverSection(Object resolverSection) {
+        if (resolverSection instanceof Map<?, ?>) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> resolver = (Map<String, Object>) resolverSection;
+            applyResolverSettings(resolver);
         }
     }
 
@@ -590,6 +599,7 @@ public class Settings {
         private boolean sslEnabled = true;
         private String sslMode = "require";
         private String sslCert = "";
+        @SuppressWarnings("java:S2068")
         private String sslKey = "";
         private String sslRootCert = "";
         @SuppressWarnings("java:S2068")

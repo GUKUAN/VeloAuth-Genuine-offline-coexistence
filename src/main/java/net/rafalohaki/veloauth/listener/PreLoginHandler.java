@@ -178,33 +178,42 @@ public class PreLoginHandler {
      */
     public boolean isNicknameConflict(RegisteredPlayer existingPlayer, boolean isPremium,
                                       boolean existingIsPremium, UUID currentPremiumUuid) {
-        // Conflict scenario 1: Premium player trying to use offline nickname
-        // Conflict scenario 2: Offline player trying to access account in conflict mode
-        if ((isPremium && !existingIsPremium) ||
-                (!isPremium && existingPlayer.getConflictMode())) {
+        if (hasBasicNicknameConflict(existingPlayer, isPremium, existingIsPremium)) {
             return true;
         }
 
-        // Conflict scenario 3: Name sniping — different premium UUID for same nickname
-        if (isPremium && existingIsPremium && currentPremiumUuid != null) {
-            String dbUuidStr = existingPlayer.getPremiumUuid();
-            if (dbUuidStr != null && !dbUuidStr.isEmpty()) {
-                try {
-                    UUID dbUuid = UUID.fromString(dbUuidStr);
-                    if (!dbUuid.equals(currentPremiumUuid)) {
-                        logger.warn("[SECURITY] Name snipe detected for {}: DB UUID={}, Current UUID={}",
-                                existingPlayer.getNickname(), dbUuid, currentPremiumUuid);
-                        return true;
-                    }
-                } catch (IllegalArgumentException e) {
-                    logger.error("[SECURITY] Invalid UUID in database for {}: {}",
-                            existingPlayer.getNickname(), dbUuidStr);
-                    return true;
-                }
-            }
+        return isNameSnipeConflict(existingPlayer, isPremium, existingIsPremium, currentPremiumUuid);
+    }
+
+    private boolean hasBasicNicknameConflict(RegisteredPlayer existingPlayer, boolean isPremium,
+                                             boolean existingIsPremium) {
+        return (isPremium && !existingIsPremium) || (!isPremium && existingPlayer.getConflictMode());
+    }
+
+    private boolean isNameSnipeConflict(RegisteredPlayer existingPlayer, boolean isPremium,
+                                        boolean existingIsPremium, UUID currentPremiumUuid) {
+        if (!isPremium || !existingIsPremium || currentPremiumUuid == null) {
+            return false;
         }
 
-        return false;
+        String dbUuidStr = existingPlayer.getPremiumUuid();
+        if (dbUuidStr == null || dbUuidStr.isEmpty()) {
+            return false;
+        }
+
+        try {
+            UUID dbUuid = UUID.fromString(dbUuidStr);
+            if (!dbUuid.equals(currentPremiumUuid)) {
+                logger.warn("[SECURITY] Name snipe detected for {}: DB UUID={}, Current UUID={}",
+                        existingPlayer.getNickname(), dbUuid, currentPremiumUuid);
+                return true;
+            }
+            return false;
+        } catch (IllegalArgumentException e) {
+            logger.error("[SECURITY] Invalid UUID in database for {}: {}",
+                    existingPlayer.getNickname(), dbUuidStr);
+            return true;
+        }
     }
 
     /**
@@ -240,34 +249,41 @@ public class PreLoginHandler {
                                        boolean isPremium, UUID currentPremiumUuid) {
         String username = event.getUsername();
 
-        // Case 1: Name sniping — premium player with DIFFERENT UUID than DB record
-        if (isPremium && currentPremiumUuid != null && existingPlayer.getPremiumUuid() != null) {
-            try {
-                UUID dbUuid = UUID.fromString(existingPlayer.getPremiumUuid());
-                if (!dbUuid.equals(currentPremiumUuid)) {
-                    logger.error("[SECURITY BREACH] Name snipe BLOCKED for {}: " +
-                                    "DB owner UUID={}, Attacker UUID={}",
-                            username, dbUuid, currentPremiumUuid);
-                    event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                            net.kyori.adventure.text.Component.text(
-                                    messages.get("security.name_snipe.denied"),
-                                    net.kyori.adventure.text.format.NamedTextColor.RED)));
-                    return;
-                }
-            } catch (IllegalArgumentException ignored) {
-                // Invalid UUID in DB — fall through to other conflict handling
-            }
+        if (shouldDenyNameSnipe(existingPlayer, isPremium, currentPremiumUuid)) {
+            denyNameSnipe(event, username, existingPlayer, currentPremiumUuid);
+            return;
         }
 
         if (isPremium && existingPlayer.getPremiumUuid() == null) {
-            // Case 2: Premium player trying to use offline nickname
             markAsConflicted(existingPlayer, username);
             event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
+            return;
+        }
 
-        } else if (!isPremium && existingPlayer.getConflictMode()) {
-            // Case 3: Offline player accessing conflicted account
+        if (!isPremium && existingPlayer.getConflictMode()) {
             event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
             logger.debug("[NICKNAME CONFLICT] Offline player {} accessing conflicted account", username);
+        }
+    }
+
+    private boolean shouldDenyNameSnipe(RegisteredPlayer existingPlayer, boolean isPremium, UUID currentPremiumUuid) {
+        return isPremium && currentPremiumUuid != null && existingPlayer.getPremiumUuid() != null;
+    }
+
+    private void denyNameSnipe(PreLoginEvent event, String username, RegisteredPlayer existingPlayer,
+                               UUID currentPremiumUuid) {
+        try {
+            UUID dbUuid = UUID.fromString(existingPlayer.getPremiumUuid());
+            if (!dbUuid.equals(currentPremiumUuid)) {
+                logger.error("[SECURITY BREACH] Name snipe BLOCKED for {}: DB owner UUID={}, Attacker UUID={}",
+                        username, dbUuid, currentPremiumUuid);
+                event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
+                        net.kyori.adventure.text.Component.text(
+                                messages.get("security.name_snipe.denied"),
+                                net.kyori.adventure.text.format.NamedTextColor.RED)));
+            }
+        } catch (IllegalArgumentException ignored) {
+            // Invalid UUID in DB — fall through to other conflict handling
         }
     }
 
