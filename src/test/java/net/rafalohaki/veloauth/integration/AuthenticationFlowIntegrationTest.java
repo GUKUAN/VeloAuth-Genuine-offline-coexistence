@@ -70,7 +70,7 @@ class AuthenticationFlowIntegrationTest {
         );
 
         databaseManager = createTestDatabaseManager();
-        premiumResolverService = createPremiumResolverService(tempDir);
+        premiumResolverService = createPremiumResolverService();
         configureLoggerMocks();
 
         Metrics.Factory metricsFactory = mock(Metrics.Factory.class);
@@ -105,7 +105,7 @@ class AuthenticationFlowIntegrationTest {
         return new TestDatabaseManager(testConfig, messages);
     }
 
-    private PremiumResolverService createPremiumResolverService(java.nio.file.Path tempDir) {
+        private PremiumResolverService createPremiumResolverService() {
         try {
             com.j256.ormlite.jdbc.JdbcConnectionSource cs =
                     new com.j256.ormlite.jdbc.JdbcConnectionSource("jdbc:h2:mem:veloauth_premium");

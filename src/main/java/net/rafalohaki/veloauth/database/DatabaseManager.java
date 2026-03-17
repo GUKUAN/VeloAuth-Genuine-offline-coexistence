@@ -5,7 +5,6 @@ import com.j256.ormlite.dao.DaoManager;
 import com.j256.ormlite.jdbc.DataSourceConnectionSource;
 import com.j256.ormlite.jdbc.JdbcConnectionSource;
 import com.j256.ormlite.support.ConnectionSource;
-import com.j256.ormlite.support.DatabaseConnection;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import org.slf4j.Logger;
@@ -55,7 +54,6 @@ public class DatabaseManager {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseManager.class);
 
     private static final String DATABASE_ERROR = "database.error";
-    private static final String WHERE_CLAUSE = " WHERE ";
 
     private static final Marker DB_MARKER = MarkerFactory.getMarker("DATABASE");
     private static final Marker CACHE_MARKER = MarkerFactory.getMarker("CACHE");
@@ -71,6 +69,7 @@ public class DatabaseManager {
     private final ExecutorService dbExecutor;
     private final DatabaseHealthCheck healthCheck;
     private final DatabaseMigrationService migrationService;
+    private final DatabaseStatisticsQueryService statisticsQueryService;
 
     private ConnectionSource connectionSource;
     private Dao<RegisteredPlayer, String> playerDao;
@@ -100,6 +99,14 @@ public class DatabaseManager {
         this.jdbcAuthDao = new JdbcAuthDao(config);
         this.healthCheck = new DatabaseHealthCheck(jdbcAuthDao, messages);
         this.migrationService = new DatabaseMigrationService(config);
+        this.statisticsQueryService = new DatabaseStatisticsQueryService(
+            config,
+            () -> connectionSource,
+            () -> connected,
+            dbExecutor,
+            logger,
+            DB_MARKER
+        );
 
         if (logger.isDebugEnabled()) {
             logger.debug(DB_MARKER, messages.get("database.manager.created"), config.getStorageType());
@@ -735,89 +742,15 @@ public class DatabaseManager {
     // ===== Statistics Queries =====
 
     public CompletableFuture<Integer> getTotalNonPremiumAccounts() {
-        return CompletableFuture.supplyAsync(() -> {
-            if (!connected) {
-                return 0;
-            }
-            try {
-                return executeCountQuery(buildCountQuery(quotedColumn("HASH") + " IS NOT NULL"));
-            } catch (SQLException e) {
-                if (logger.isErrorEnabled()) {
-                    logger.error(DB_MARKER, "Error counting non-premium accounts", e);
-                }
-                return 0;
-            }
-        }, dbExecutor);
-    }
-
-    private String buildCountQuery(String whereClause) {
-        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM ").append(quotedTable("AUTH"));
-        if (whereClause != null && !whereClause.isBlank()) {
-            sql.append(WHERE_CLAUSE).append(whereClause);
-        }
-        return sql.toString();
-    }
-
-    private String quotedTable(String tableName) {
-        return isPostgresStorage() ? '"' + tableName + '"' : tableName;
-    }
-
-    private String quotedColumn(String columnName) {
-        return isPostgresStorage() ? '"' + columnName + '"' : columnName;
-    }
-
-    private boolean isPostgresStorage() {
-        return DatabaseType.POSTGRESQL.getName().equalsIgnoreCase(config.getStorageType());
-    }
-
-    @SuppressWarnings("java:S2077")
-    private int executeCountQuery(String sql) throws SQLException {
-        DatabaseConnection dbConnection = connectionSource.getReadWriteConnection(null);
-        try {
-            java.sql.Connection connection = dbConnection.getUnderlyingConnection();
-            try (java.sql.Statement stmt = connection.createStatement();
-                 java.sql.ResultSet rs = stmt.executeQuery(sql)) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
-                return 0;
-            }
-        } finally {
-            connectionSource.releaseConnection(dbConnection);
-        }
+        return statisticsQueryService.getTotalNonPremiumAccounts();
     }
 
     public CompletableFuture<Integer> getTotalRegisteredAccounts() {
-        return CompletableFuture.supplyAsync(() -> {
-            if (!connected) {
-                return 0;
-            }
-            try {
-                return executeCountQuery(buildCountQuery(null));
-            } catch (SQLException e) {
-                if (logger.isErrorEnabled()) {
-                    logger.error(DB_MARKER, "Error getting total registered accounts", e);
-                }
-                return 0;
-            }
-        }, dbExecutor);
+        return statisticsQueryService.getTotalRegisteredAccounts();
     }
 
     public CompletableFuture<Integer> getTotalPremiumAccounts() {
-        return CompletableFuture.supplyAsync(() -> {
-            if (!connected) {
-                return 0;
-            }
-            try {
-                String whereClause = quotedColumn("PREMIUMUUID") + " IS NOT NULL OR " + quotedColumn("HASH") + " IS NULL";
-                return executeCountQuery(buildCountQuery(whereClause));
-            } catch (SQLException e) {
-                if (logger.isErrorEnabled()) {
-                    logger.error(DB_MARKER, "Error getting total premium accounts", e);
-                }
-                return 0;
-            }
-        }, dbExecutor);
+        return statisticsQueryService.getTotalPremiumAccounts();
     }
 
     // ===== Runtime Detection =====
