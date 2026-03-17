@@ -11,6 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.PropertyResourceBundle;
 import java.util.ResourceBundle;
+import java.util.regex.Pattern;
 
 /**
  * Manages external language files for VeloAuth.
@@ -24,6 +25,7 @@ public final class LanguageFileManager {
     // Internal resource path within the JAR, not an external URI
     @SuppressWarnings("java:S1075")
     private static final String LANG_RESOURCE_PATH = "/lang/";
+    private static final Pattern VALID_LANGUAGE_CODE = Pattern.compile("^[a-zA-Z0-9_-]+$");
     
     private final Path langDirectory;
     
@@ -54,6 +56,12 @@ public final class LanguageFileManager {
         }
     }
     
+    private static void validateLanguageCode(String language) {
+        if (language == null || !VALID_LANGUAGE_CODE.matcher(language).matches()) {
+            throw new IllegalArgumentException("Invalid language code: must be alphanumeric/underscore/hyphen");
+        }
+    }
+
     /**
      * Checks if a language file exists in the JAR resources.
      *
@@ -171,8 +179,12 @@ public final class LanguageFileManager {
      * @throws IOException if the language file cannot be loaded
      */
     public ResourceBundle loadLanguageBundle(String language) throws IOException {
+        validateLanguageCode(language);
         String filename = MESSAGES_PREFIX + language + PROPERTIES_SUFFIX;
-        Path languageFile = langDirectory.resolve(filename);
+        Path languageFile = langDirectory.resolve(filename).normalize();
+        if (!languageFile.startsWith(langDirectory.normalize())) {
+            throw new IllegalArgumentException("Invalid language code: path traversal detected");
+        }
         
         logger.debug("Loading language: {}", language);
         logger.debug("Looking for external file: {}", languageFile.toAbsolutePath());

@@ -3,6 +3,7 @@ package net.rafalohaki.veloauth.command;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
+import net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider;
 
 import java.util.List;
 
@@ -59,9 +60,7 @@ class VAuthCommand implements SimpleCommand {
     }
 
     private void handleConflictsCommand(CommandSource source) {
-        // Run on a scheduler thread to avoid blocking the caller (Velocity command) thread
-        // during the database query. sendMessage() is thread-safe in Velocity.
-        ctx.plugin().getServer().getScheduler().buildTask(ctx.plugin(), () -> {
+        VirtualThreadExecutorProvider.submitTask(() -> {
             source.sendMessage(ValidationUtils.createWarningComponent(ctx.messages().get("admin.conflicts.header")));
             var conflicts = ctx.databaseManager().findPlayersInConflictMode().join();
 
@@ -103,7 +102,7 @@ class VAuthCommand implements SimpleCommand {
             source.sendMessage(ValidationUtils.createWarningComponent(ctx.messages().get("admin.conflicts.tip_premium")));
             source.sendMessage(ValidationUtils.createWarningComponent(ctx.messages().get("admin.conflicts.tip_offline")));
             source.sendMessage(ValidationUtils.createWarningComponent(ctx.messages().get("admin.conflicts.tip_admin")));
-        }).schedule();
+        });
     }
 
     private void handleCacheResetCommand(CommandSource source, String[] args) {
@@ -123,9 +122,7 @@ class VAuthCommand implements SimpleCommand {
     }
 
     private void handleStatsCommand(CommandSource source) {
-        // Run on a scheduler thread to avoid blocking the caller (Velocity command) thread
-        // during parallel database queries. sendMessage() is thread-safe in Velocity.
-        ctx.plugin().getServer().getScheduler().buildTask(ctx.plugin(), () -> {
+        VirtualThreadExecutorProvider.submitTask(() -> {
             var totalF = ctx.databaseManager().getTotalRegisteredAccounts();
             var premiumF = ctx.databaseManager().getTotalPremiumAccounts();
             var nonPremiumF = ctx.databaseManager().getTotalNonPremiumAccounts();
@@ -152,7 +149,7 @@ class VAuthCommand implements SimpleCommand {
             statsMessage.append(ctx.messages().get("admin.stats.database_status", (Object) dbStatus));
 
             CommandHelper.sendWarning(source, statsMessage.toString());
-        }).schedule();
+        });
     }
 
     private void sendAdminHelp(CommandSource source) {

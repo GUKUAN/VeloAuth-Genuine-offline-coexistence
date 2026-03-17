@@ -356,7 +356,7 @@ public class Messages {
             } else {
                 logger.error("Could not find language file: {}", fileName);
             }
-        } catch (Exception e) {
+        } catch (IOException e) {
             logger.error("Error loading language file: {}", fileName, e);
         }
 

@@ -102,7 +102,7 @@ public class ConnectionManager {
             }
 
             return executeAuthServerTransferAsync(player, targetServer);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             return CompletableFuture.completedFuture(handleTransferError(player, e));
         }
     }
@@ -269,7 +269,7 @@ public class ConnectionManager {
             // Wykonaj transfer synchroniczny z timeoutem
             return executeBackendTransfer(player, targetServer, serverName);
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("Error transferring player to backend: {}", player.getUsername(), e);
 
             sendErrorMessage(player);
@@ -327,7 +327,7 @@ public class ConnectionManager {
             return handleTransferResult(player, targetServer, serverName, attempts, result);
         } catch (CompletionException e) {
             return handleCompletionException(player, targetServer, serverName, attempts, e);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logTransferError(player, serverName, e);
             sendErrorMessage(player);
             return false;
@@ -435,7 +435,7 @@ public class ConnectionManager {
                         player.getUsername(), serverName, retry.getReasonComponent().orElse(createUnknownErrorComponent()));
                 sendErrorMessage(player);
             }
-        } catch (Exception retryEx) {
+        } catch (java.util.concurrent.CompletionException retryEx) {
             logger.error("Error while retrying backend transfer for {}: {}",
                     player.getUsername(), retryEx.getMessage(), retryEx);
             sendErrorMessage(player);
@@ -452,7 +452,7 @@ public class ConnectionManager {
         return false;
     }
 
-    private void logTransferError(Player player, String serverName, Exception e) {
+    private void logTransferError(Player player, String serverName, RuntimeException e) {
         if (logger.isErrorEnabled()) {
             logger.error("Error transferring player {} to server {}: {}",
                     player.getUsername(), serverName, e.getMessage(), e);
@@ -509,7 +509,7 @@ public class ConnectionManager {
                     .connect()
                     .orTimeout(settings.getConnectionTimeoutSeconds(), TimeUnit.SECONDS)
                     .whenComplete((result, ex) -> handleTimeoutRetryResult(player, serverName, result, ex));
-        } catch (Exception retryEx) {
+        } catch (RuntimeException retryEx) {
             timeoutRetryScheduled.remove(player.getUniqueId());
             logger.error("Error scheduling retry after timeout for {}: {}", player.getUsername(), retryEx.getMessage());
         }

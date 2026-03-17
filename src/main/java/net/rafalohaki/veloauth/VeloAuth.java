@@ -27,25 +27,13 @@ import net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider;
 import org.bstats.velocity.Metrics;
 import org.slf4j.Logger;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * VeloAuth - Complete Velocity Authentication Plugin.
- * <p>
- * Manager autoryzacji na proxy Velocity, który zarządza przepuszczaniem graczy
- * między Velocity, serwerem auth (limbo) i serwerami backend.
- * <p>
- * Kluczowe cechy:
- * - Zarządzanie cache autoryzacji - zalogowani gracze omijają logowanie
- * - Transfer graczy via Velocity - Velocity steruje przepuszczaniem między serwerami
- * - Wszystkie operacje na proxy - /login, /register, /changepassword obsługiwane przez VeloAuth
- * - BCrypt hashing - bezpieczne przechowywanie haseł
- * - Wspólna baza danych - kompatybilna z LimboAuth
- * - Obsługa graczy premium i cracked
- * - Virtual Threads (Project Loom) - wydajne I/O
- * - Backend API - integracja z innymi pluginami
- * - Java 21 - najnowsze optymalizacje
+ * Velocity proxy authentication plugin.
+ * Manages player auth flows between Velocity, a configurable auth server, and backend servers.
  */
 @Plugin(
         id = "veloauth",
@@ -117,7 +105,7 @@ public class VeloAuth {
             messages.reloadWithLanguage(newLanguage);
             logger.info("Language files reloaded successfully (language: {})", newLanguage);
             return true;
-        } catch (Exception e) {
+        } catch (IOException e) {
             logger.error("Failed to reload language files", e);
             return false;
         }
@@ -301,7 +289,7 @@ public class VeloAuth {
                 logger.debug("✅ Message system initialized in {} ms (Language: {}, External files: enabled)", 
                         System.currentTimeMillis() - startTime, language);
             }
-        } catch (Exception e) {
+        } catch (IOException e) {
             logger.error("Failed to initialize external language files, falling back to JAR-embedded files", e);
             messages = new Messages();
             messages.setLanguage(language);

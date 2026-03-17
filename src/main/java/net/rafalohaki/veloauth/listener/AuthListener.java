@@ -22,6 +22,7 @@ import net.rafalohaki.veloauth.database.DatabaseManager.DbResult;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.util.FloodgateDetector;
+import net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider;
 import net.rafalohaki.veloauth.util.PlayerAddressUtils;
 import org.slf4j.Logger;
 import org.slf4j.Marker;
@@ -406,16 +407,16 @@ public class AuthListener {
 
         try {
             // 🔥 USE_OFFLINE: Check for conflict resolution messages - delegate to PostLoginHandler
-            // ASYNC: Run in separate task to avoid blocking event loop with DB operations
-            plugin.getServer().getScheduler().buildTask(plugin, () -> {
+            // ASYNC: Run on virtual thread to avoid blocking Netty IO threads
+            VirtualThreadExecutorProvider.submitTask(() -> {
                 try {
                     if (postLoginHandler.shouldShowConflictMessage(player)) {
                         postLoginHandler.showConflictResolutionMessage(player);
                     }
-                } catch (Exception e) {
+                } catch (java.util.concurrent.CompletionException e) {
                     logger.error("Error checking conflict message for {}", player.getUsername(), e);
                 }
-            }).schedule();
+            });
 
             // Delegate to PostLoginHandler based on player mode
             if (player.isOnlineMode()) {
@@ -426,7 +427,7 @@ public class AuthListener {
             // Handle offline player - delegate to PostLoginHandler
             postLoginHandler.handleOfflinePlayer(player, playerIp);
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("Error handling PostLoginEvent for player: {}", event.getPlayer().getUsername(), e);
 
             event.getPlayer().disconnect(Component.text(
@@ -476,7 +477,7 @@ public class AuthListener {
             // ✅ JEŚLI TO BACKEND - SPRAWDŹ AUTORYZACJĘ + SESJĘ + CACHE (async)
             return EventTask.resumeWhenComplete(verifyBackendConnectionAsync(event, player, targetServerName));
 
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("Error in ServerPreConnect", e);
             event.setResult(ServerPreConnectEvent.ServerResult.denied());
             return null;
@@ -619,7 +620,7 @@ public class AuthListener {
             } else {
                 handleAuthServerConnection(player);
             }
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             logger.error("Error in ServerConnected", e);
         }
     }

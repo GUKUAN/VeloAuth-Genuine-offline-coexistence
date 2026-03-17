@@ -94,9 +94,12 @@ public final class SettingsValidator {
         validatePremiumResolverTtl(resolver);
     }
 
+    private static final int MIN_BCRYPT_COST = 10;
+    private static final int MAX_BCRYPT_COST = 31;
+
     private static void validateBcryptCost(Settings settings) {
-        if (settings.getBcryptCost() < 4 || settings.getBcryptCost() > 31) {
-            throw new IllegalArgumentException("BCrypt cost must be in range 4-31");
+        if (settings.getBcryptCost() < MIN_BCRYPT_COST || settings.getBcryptCost() > MAX_BCRYPT_COST) {
+            throw new IllegalArgumentException("BCrypt cost must be in range " + MIN_BCRYPT_COST + "-" + MAX_BCRYPT_COST);
         }
     }
 

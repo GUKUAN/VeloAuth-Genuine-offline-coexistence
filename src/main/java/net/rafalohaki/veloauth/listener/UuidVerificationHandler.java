@@ -65,7 +65,7 @@ public class UuidVerificationHandler {
                 return java.util.concurrent.CompletableFuture.completedFuture(handlePremiumPlayer(player));
             }
             return verifyCrackedPlayerUuidAsync(player);
-        } catch (Exception e) {
+        } catch (RuntimeException e) {
             return java.util.concurrent.CompletableFuture.completedFuture(handleVerificationError(player, e));
         }
     }

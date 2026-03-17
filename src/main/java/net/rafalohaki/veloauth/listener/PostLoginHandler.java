@@ -37,10 +37,10 @@ public class PostLoginHandler {
                            DatabaseManager databaseManager,
                            Messages messages,
                            Logger logger) {
-        this.authCache = authCache;
-        this.databaseManager = databaseManager;
-        this.messages = messages;
-        this.logger = logger;
+        this.authCache = java.util.Objects.requireNonNull(authCache, "authCache");
+        this.databaseManager = java.util.Objects.requireNonNull(databaseManager, "databaseManager");
+        this.messages = java.util.Objects.requireNonNull(messages, "messages");
+        this.logger = java.util.Objects.requireNonNull(logger, "logger");
     }
 
     /**
@@ -147,8 +147,8 @@ public class PostLoginHandler {
             return Optional.ofNullable(authCache.getPremiumStatus(player.getUsername()))
                     .map(PremiumCacheEntry::isPremium)
                     .orElse(false);
-        } catch (Exception e) {
-            logger.error("Error checking conflict message for {}", player.getUsername(), e);
+        } catch (java.util.concurrent.CompletionException e) {
+            logger.error("Database error checking conflict message for {}", player.getUsername(), e);
             return false;
         }
     }

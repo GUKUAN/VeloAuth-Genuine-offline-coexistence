@@ -46,12 +46,12 @@ public class PreLoginHandler {
                    DatabaseManager databaseManager,
                    Messages messages,
                    Logger logger) {
-        this.authCache = authCache;
-        this.premiumResolverService = premiumResolverService;
+        this.authCache = java.util.Objects.requireNonNull(authCache, "authCache");
+        this.premiumResolverService = java.util.Objects.requireNonNull(premiumResolverService, "premiumResolverService");
         this.settings = java.util.Objects.requireNonNull(settings, "settings");
-        this.databaseManager = databaseManager;
-        this.messages = messages;
-        this.logger = logger;
+        this.databaseManager = java.util.Objects.requireNonNull(databaseManager, "databaseManager");
+        this.messages = java.util.Objects.requireNonNull(messages, "messages");
+        this.logger = java.util.Objects.requireNonNull(logger, "logger");
     }
 
     /**
@@ -168,7 +168,7 @@ public class PreLoginHandler {
                 PremiumResolution resolution = premiumResolverService.resolve(username);
                 cacheFromResolution(username, resolution);
                 logger.debug("Background refresh completed for {}", username);
-            } catch (Exception e) {
+            } catch (RuntimeException e) {
                 logger.warn("Background refresh failed for {}: {}", username, e.getMessage());
             }
         });

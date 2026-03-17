@@ -58,8 +58,16 @@ public class DiscordWebhookClient {
      * @return true if valid Discord webhook URL
      */
     private static boolean isValidDiscordWebhookUrl(String url) {
-        return url.startsWith("https://discord.com/api/webhooks/") ||
-               url.startsWith("https://discordapp.com/api/webhooks/");
+        if (!url.startsWith("https://discord.com/api/webhooks/") &&
+            !url.startsWith("https://discordapp.com/api/webhooks/")) {
+            return false;
+        }
+        // Validate that URL contains webhook ID and token segments after the prefix
+        String path = url.startsWith("https://discord.com/api/webhooks/")
+                ? url.substring("https://discord.com/api/webhooks/".length())
+                : url.substring("https://discordapp.com/api/webhooks/".length());
+        String[] segments = path.split("/", -1);
+        return segments.length >= 2 && !segments[0].isEmpty() && !segments[1].isEmpty();
     }
     
     /**
