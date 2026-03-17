@@ -64,7 +64,6 @@ class VeloAuthIntegrationTest {
     private Player player;
     @Mock
     private CommandSource commandSource;
-    private com.velocitypowered.api.command.CommandMeta.Builder metaBuilder;
     private CommandHandler commandHandler;
     private UUID playerUuid;
 
@@ -86,7 +85,7 @@ class VeloAuthIntegrationTest {
         );
 
         // Fix CommandManager mocking - properly chain builder pattern
-        metaBuilder = mock(com.velocitypowered.api.command.CommandMeta.Builder.class);
+        var metaBuilder = mock(com.velocitypowered.api.command.CommandMeta.Builder.class);
         when(metaBuilder.aliases(any(String[].class))).thenReturn(metaBuilder);
         when(metaBuilder.build()).thenReturn(mock(com.velocitypowered.api.command.CommandMeta.class));
         when(commandManager.metaBuilder(anyString())).thenReturn(metaBuilder);
