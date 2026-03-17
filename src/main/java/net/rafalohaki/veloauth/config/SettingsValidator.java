@@ -1,6 +1,7 @@
 package net.rafalohaki.veloauth.config;
 
 import net.rafalohaki.veloauth.database.DatabaseType;
+import net.rafalohaki.veloauth.util.FloodgateDetector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,6 +27,7 @@ public final class SettingsValidator {
         validateSecurity(settings);
         validateConnection(settings);
         validatePremium(settings);
+        validateFloodgate(settings);
         settings.normalizeLanguage();
         logger.debug("Configuration validation completed successfully");
     }
@@ -115,6 +117,32 @@ public final class SettingsValidator {
         }
         if (resolver.getHitTtlMinutes() < 0 || resolver.getMissTtlMinutes() < 0) {
             throw new IllegalArgumentException("Premium resolver: TTL in minutes must not be negative");
+        }
+    }
+
+    static void validateFloodgate(Settings settings) {
+        if (!settings.isFloodgateIntegrationEnabled()) {
+            return;
+        }
+
+        String prefix = settings.getFloodgateUsernamePrefix();
+        if (prefix == null) {
+            throw new IllegalArgumentException("Floodgate username prefix must not be null");
+        }
+        if (prefix.length() > 16) {
+            throw new IllegalArgumentException("Floodgate username prefix must be at most 16 characters");
+        }
+        if (prefix.chars().anyMatch(Character::isWhitespace)) {
+            throw new IllegalArgumentException("Floodgate username prefix must not contain whitespace");
+        }
+        if (!prefix.isEmpty() && prefix.chars().allMatch(c -> Character.isLetterOrDigit(c) || c == '_')) {
+            logger.warn("Floodgate username prefix '{}' is alphanumeric; this increases the risk of username collisions", prefix);
+        }
+        if (settings.isFloodgateIntegrationEnabled() && prefix.isEmpty()) {
+            logger.warn("Floodgate integration is enabled with an empty username prefix; ensure Java and Bedrock usernames cannot collide");
+        }
+        if (settings.isFloodgateIntegrationEnabled() && !FloodgateDetector.isFloodgateAvailable()) {
+            logger.warn("Floodgate integration is enabled in config but Floodgate plugin is not loaded; Bedrock player detection will not work");
         }
     }
 }

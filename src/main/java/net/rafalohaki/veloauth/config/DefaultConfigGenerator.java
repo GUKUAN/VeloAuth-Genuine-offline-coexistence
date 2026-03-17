@@ -108,6 +108,13 @@ class DefaultConfigGenerator {
                     hit-ttl-minutes: 10 # Cache TTL for positive hits
                     miss-ttl-minutes: 3 # Cache TTL for misses
                     case-sensitive: true # Preserve username case in resolver cache
+
+                # Floodgate / Bedrock support configuration
+                # Must stay aligned with your Floodgate proxy config.
+                floodgate:
+                  enabled: false # Enable Floodgate-specific Bedrock handling in VeloAuth
+                  username-prefix: "." # Match Floodgate's username-prefix; use "" if you removed the prefix
+                  bypass-auth-server: true # Bedrock players authenticated by Floodgate can skip auth server
                 
                 # Alert system configuration (optional - Discord webhook notifications)
                 alerts:

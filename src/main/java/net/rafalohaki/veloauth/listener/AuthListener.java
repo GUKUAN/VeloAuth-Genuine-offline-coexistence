@@ -133,6 +133,12 @@ public class AuthListener {
         return "UUID mismatch";
     }
 
+    private boolean isBedrockPlayer(Player player) {
+        return settings.isFloodgateIntegrationEnabled()
+                && settings.isFloodgateBypassAuthServerEnabled()
+                && FloodgateDetector.isBedrockPlayer(player.getUniqueId());
+    }
+
 
 
     /**
@@ -494,7 +500,7 @@ public class AuthListener {
             // Floodgate already authenticated the player via Xbox Live during the handshake
             // phase, before this event fires. Redirecting to limbo causes
             // ClientboundLevelChunkWithLightPacket translation failures in Geyser.
-            if (FloodgateDetector.isBedrockPlayer(player.getUniqueId())) {
+            if (isBedrockPlayer(player)) {
                 logger.info("[FLOODGATE] Bedrock player {} → {} (skipping auth server)",
                         player.getUsername(), targetServerName);
                 return true;
@@ -532,7 +538,7 @@ public class AuthListener {
                 logger.debug("Autoryzowany gracz {} próbuje iść na auth server - przekierowuję na backend",
                         player.getUsername());
                 event.setResult(ServerPreConnectEvent.ServerResult.denied());
-                // Velocity automatycznie przekieruje na inny serwer
+                connectionManager.autoTransferFromAuthServerToBackend(player);
             } else {
                 logger.debug("Auth server - pozwól (gracz nie jest autoryzowany)");
             }
@@ -542,7 +548,7 @@ public class AuthListener {
     }
 
     private CompletableFuture<Void> verifyBackendConnectionAsync(ServerPreConnectEvent event, Player player, String targetServerName) {
-        if (FloodgateDetector.isBedrockPlayer(player.getUniqueId())) {
+        if (isBedrockPlayer(player)) {
             logger.info("[FLOODGATE] Bedrock player {} → {} (skipping auth server)",
                     player.getUsername(), targetServerName);
             return CompletableFuture.completedFuture(null);

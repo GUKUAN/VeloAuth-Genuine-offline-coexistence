@@ -102,6 +102,7 @@ class AuthenticationFlowIntegrationTest {
         preLoginHandler = new PreLoginHandler(
                 authCache,
                 premiumResolverService,
+                settings,
                 databaseManager,
                 messages,
                 logger
@@ -140,7 +141,7 @@ class AuthenticationFlowIntegrationTest {
                 "Premium player username should be valid");
         
         PreLoginHandler.PremiumResolutionResult result = 
-                preLoginHandler.resolvePremiumStatus(username);
+                preLoginHandler.resolvePremiumStatusAsync(username).join();
         assertTrue(result.premium(), "Player should be detected as premium");
         assertNotNull(result.premiumUuid(), "Premium UUID should be present");
         
@@ -180,7 +181,7 @@ class AuthenticationFlowIntegrationTest {
                 "Offline player username should be valid");
         
         PreLoginHandler.PremiumResolutionResult result = 
-                preLoginHandler.resolvePremiumStatus(username);
+                preLoginHandler.resolvePremiumStatusAsync(username).join();
         assertFalse(result.premium(), "Player should be detected as offline");
         
         // Mock player
@@ -253,10 +254,6 @@ class AuthenticationFlowIntegrationTest {
         
         assertTrue(hasConflict, 
                 "Should detect conflict when premium player uses offline nickname");
-        
-        assertDoesNotThrow(() ->
-                preLoginHandler.handleNicknameConflictNoEvent(conflictedNickname, existingOfflinePlayer, isPremium, currentPremiumUuid),
-                "Conflict handling should not throw exceptions");
     }
 
     /**
@@ -284,10 +281,6 @@ class AuthenticationFlowIntegrationTest {
         
         assertTrue(hasConflict,
                 "Should detect conflict when offline player accesses conflicted account");
-        
-        assertDoesNotThrow(() ->
-                preLoginHandler.handleNicknameConflictNoEvent(conflictedNickname, conflictedPlayer, isPremium, null),
-                "Conflict handling should not throw exceptions");
     }
 
     /**
@@ -411,6 +404,8 @@ class AuthenticationFlowIntegrationTest {
                 "Username with hyphen should be invalid");
         assertFalse(preLoginHandler.isValidUsername("Player.123"),
                 "Username with dot should be invalid");
+        assertFalse(preLoginHandler.isValidUsername("..Player123"),
+                "Username with double Floodgate-like prefix should be invalid");
         assertFalse(preLoginHandler.isValidUsername(""),
                 "Empty username should be invalid");
         assertFalse(preLoginHandler.isValidUsername(null),

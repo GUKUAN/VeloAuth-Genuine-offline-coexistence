@@ -5,6 +5,7 @@ import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.proxy.ProxyInitializeEvent;
 import com.velocitypowered.api.event.proxy.ProxyShutdownEvent;
 import com.velocitypowered.api.plugin.Plugin;
+import com.velocitypowered.api.plugin.Dependency;
 import com.velocitypowered.api.plugin.annotation.DataDirectory;
 import com.velocitypowered.api.proxy.ProxyServer;
 import net.rafalohaki.veloauth.cache.AuthCache;
@@ -51,7 +52,10 @@ import java.util.concurrent.CompletableFuture;
         name = "VeloAuth",
         version = BuildConstants.VERSION,
         description = "Complete Velocity Authentication Plugin with BCrypt, Virtual Threads and multi-database support",
-        authors = {"Rafal"}
+    authors = {"Rafal"},
+    dependencies = {
+        @Dependency(id = "floodgate", optional = true)
+    }
 )
 public class VeloAuth {
 
@@ -405,7 +409,7 @@ public class VeloAuth {
         
         // CRITICAL: Create handlers BEFORE AuthListener
         PreLoginHandler preLoginHandler = new PreLoginHandler(
-            authCache, premiumResolverService, databaseManager,
+            authCache, premiumResolverService, settings, databaseManager,
             messages, logger);
         logger.debug("PreLoginHandler created successfully");
         
@@ -526,6 +530,10 @@ public class VeloAuth {
     private void logStartupInfo(long initializationDuration) {
         if (logger.isInfoEnabled()) {
             logger.info("Auth server '{}' configured", settings.getAuthServerName());
+            logger.info("Floodgate support: {} (prefix='{}', auth bypass={})",
+                    settings.isFloodgateIntegrationEnabled() ? "enabled" : "disabled",
+                    settings.getFloodgateUsernamePrefix(),
+                    settings.isFloodgateBypassAuthServerEnabled());
             
             String dbType = settings.getDatabaseStorageType();
             String language = settings.getLanguage();

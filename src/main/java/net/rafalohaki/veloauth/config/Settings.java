@@ -34,6 +34,7 @@ public class Settings {
     private final ObjectMapper yamlMapper;
     private final PostgreSQLSettings postgreSQLSettings = new PostgreSQLSettings();
     private final PremiumSettings premiumSettings = new PremiumSettings();
+    private final FloodgateSettings floodgateSettings = new FloodgateSettings();
     private final AlertSettings alertSettings = new AlertSettings();
     private static final String DEFAULT_DATABASE_NAME = "veloauth";
     private static final String CONFIG_KEY_TIMEOUT_SECONDS = "timeout-seconds";
@@ -115,6 +116,7 @@ public class Settings {
             loadConnectionSettings(config);
             loadSecuritySettings(config);
             loadPremiumSettings(config);
+            loadFloodgateSettings(config);
             loadAlertSettings(config);
             loadDebugSettings(config);
             loadLanguageSettings(config);
@@ -283,6 +285,18 @@ public class Settings {
                 alertSettings.setDiscordEnabled(YamlParserUtils.getBoolean(discord, "enabled", alertSettings.isDiscordEnabled()));
                 alertSettings.setDiscordWebhookUrl(YamlParserUtils.getString(discord, "webhook-url", alertSettings.getDiscordWebhookUrl()));
             }
+        }
+    }
+
+    private void loadFloodgateSettings(Map<String, Object> config) {
+        Object floodgateSection = config.get("floodgate");
+        if (floodgateSection instanceof Map<?, ?>) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> floodgate = (Map<String, Object>) floodgateSection;
+            floodgateSettings.setEnabled(YamlParserUtils.getBoolean(floodgate, "enabled", floodgateSettings.isEnabled()));
+            floodgateSettings.setUsernamePrefix(YamlParserUtils.getString(floodgate, "username-prefix", floodgateSettings.getUsernamePrefix()));
+            floodgateSettings.setBypassAuthServer(YamlParserUtils.getBoolean(floodgate,
+                    "bypass-auth-server", floodgateSettings.isBypassAuthServer()));
         }
     }
 
@@ -460,18 +474,6 @@ public class Settings {
         return authServerTimeoutSeconds;
     }
 
-    /** @deprecated Use {@link #getAuthServerName()} instead. */
-    @Deprecated(since = "1.1.0", forRemoval = true)
-    public String getPicoLimboServerName() {
-        return getAuthServerName();
-    }
-
-    /** @deprecated Use {@link #getAuthServerTimeoutSeconds()} instead. */
-    @Deprecated(since = "1.1.0", forRemoval = true)
-    public int getPicoLimboTimeoutSeconds() {
-        return getAuthServerTimeoutSeconds();
-    }
-
     public int getBcryptCost() {
         return bcryptCost;
     }
@@ -510,6 +512,22 @@ public class Settings {
 
     public PremiumSettings getPremiumSettings() {
         return premiumSettings;
+    }
+
+    public boolean isFloodgateIntegrationEnabled() {
+        return floodgateSettings.isEnabled();
+    }
+
+    public String getFloodgateUsernamePrefix() {
+        return floodgateSettings.getUsernamePrefix();
+    }
+
+    public boolean isFloodgateBypassAuthServerEnabled() {
+        return floodgateSettings.isBypassAuthServer();
+    }
+
+    public FloodgateSettings getFloodgateSettings() {
+        return floodgateSettings;
     }
 
     public boolean isDebugEnabled() {
@@ -601,6 +619,22 @@ public class Settings {
         public boolean isOnlineModeNeedAuth() { return onlineModeNeedAuth; }
         void setOnlineModeNeedAuth(boolean value) { this.onlineModeNeedAuth = value; }
         public PremiumResolverSettings getResolver() { return resolver; }
+    }
+
+    /**
+     * Floodgate integration configuration.
+     */
+    public static class FloodgateSettings {
+        private boolean enabled = false;
+        private String usernamePrefix = ".";
+        private boolean bypassAuthServer = true;
+
+        public boolean isEnabled() { return enabled; }
+        void setEnabled(boolean value) { this.enabled = value; }
+        public String getUsernamePrefix() { return usernamePrefix != null ? usernamePrefix : "."; }
+        void setUsernamePrefix(String value) { this.usernamePrefix = value != null ? value : "."; }
+        public boolean isBypassAuthServer() { return bypassAuthServer; }
+        void setBypassAuthServer(boolean value) { this.bypassAuthServer = value; }
     }
 
     /**

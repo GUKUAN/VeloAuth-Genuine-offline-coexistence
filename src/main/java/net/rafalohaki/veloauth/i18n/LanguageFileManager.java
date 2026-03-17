@@ -315,19 +315,4 @@ public final class LanguageFileManager {
         }
     }
     
-    /**
-     * Validates that a language file can be loaded successfully.
-     * Logs validation results.
-     *
-     * @param language The language code to validate
-     */
-    public void validateLanguageFile(String language) {
-        try {
-            ResourceBundle bundle = loadLanguageBundle(language);
-            logger.info("Validated language file for: {}", language);
-            logger.debug("Language file contains {} keys", bundle.keySet().size());
-        } catch (IOException e) {
-            logger.error("Failed to validate language file for: {}", language, e);
-        }
-    }
 }

@@ -9,7 +9,6 @@ import net.rafalohaki.veloauth.cache.AuthCache;
 import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.CachedAuthUser;
-import net.rafalohaki.veloauth.util.StringConstants;
 import org.slf4j.Logger;
 
 import com.velocitypowered.api.scheduler.ScheduledTask;
@@ -89,12 +88,6 @@ public class ConnectionManager {
      */
     public boolean transferToAuthServer(Player player) {
         return transferToAuthServerAsync(player).join();
-    }
-
-    /** @deprecated Use {@link #transferToAuthServer(Player)} instead. */
-    @Deprecated(since = "1.1.0", forRemoval = true)
-    public boolean transferToPicoLimbo(Player player) {
-        return transferToAuthServer(player);
     }
 
     public CompletableFuture<Boolean> transferToAuthServerAsync(Player player) {
@@ -565,20 +558,32 @@ public class ConnectionManager {
             logger.debug("Velocity try servers: {}", tryServers);
         }
         
-        // Iteruj przez try servers w kolejności z konfiguracji Velocity
-        for (String serverName : tryServers) {
-            // Skip auth server - it's an auth server, not a backend
-            if (serverName.equals(authServerName)) {
-                logger.debug("Skipping auth server: {}", serverName);
-            } else {
-                Optional<RegisteredServer> server = plugin.getServer().getServer(serverName);
-                if (server.isEmpty()) {
-                    logger.debug("Serwer {} z try nie jest zarejestrowany", serverName);
-                } else {
-                    RegisteredServer registeredServer = server.get();
-                    if (isServerAvailable(registeredServer, serverName)) {
-                        return Optional.of(registeredServer);
-                    }
+        // Collect candidate servers (excluding auth server)
+        java.util.List<RegisteredServer> candidates = tryServers.stream()
+                .filter(name -> !name.equals(authServerName))
+                .flatMap(name -> plugin.getServer().getServer(name).stream())
+                .toList();
+
+        if (candidates.isEmpty()) {
+            logger.warn("No backend candidates found in try list");
+        } else {
+            // Ping all candidates in parallel with 2s timeout
+            @SuppressWarnings("unchecked")
+            CompletableFuture<Boolean>[] pings = candidates.stream()
+                    .map(server -> server.ping()
+                            .orTimeout(2, TimeUnit.SECONDS)
+                            .thenApply(result -> true)
+                            .exceptionally(ex -> false))
+                    .toArray(CompletableFuture[]::new);
+
+            CompletableFuture.allOf(pings).join();
+
+            // Return the first available server (preserving try order)
+            for (int i = 0; i < candidates.size(); i++) {
+                if (pings[i].join()) {
+                    RegisteredServer available = candidates.get(i);
+                    logger.debug("Znaleziono dostępny serwer: {}", available.getServerInfo().getName());
+                    return Optional.of(available);
                 }
             }
         }
@@ -671,12 +676,6 @@ public class ConnectionManager {
                 .orElse(false);
     }
 
-    /** @deprecated Use {@link #isPlayerOnAuthServer(Player)} instead. */
-    @Deprecated(since = "1.1.0", forRemoval = true)
-    public boolean isPlayerOnPicoLimbo(Player player) {
-        return isPlayerOnAuthServer(player);
-    }
-
     /**
      * Wymusza ponowną autoryzację gracza.
      * Can be used for /logout command implementation.
@@ -687,6 +686,7 @@ public class ConnectionManager {
         try {
             // Usuń z cache
             authCache.removeAuthorizedPlayer(player.getUniqueId());
+            authCache.endSession(player.getUniqueId());
             
             // Clear timeout retry flag
             timeoutRetryScheduled.remove(player.getUniqueId());
@@ -774,12 +774,6 @@ public class ConnectionManager {
         pendingTransfers.put(playerUuid, task);
     }
 
-    /** @deprecated Use {@link #autoTransferFromAuthServerToBackend(Player)} instead. */
-    @Deprecated(since = "1.1.0", forRemoval = true)
-    public void autoTransferFromPicoLimboToBackend(Player player) {
-        autoTransferFromAuthServerToBackend(player);
-    }
-    
     /**
      * Anuluje oczekujący transfer dla gracza.
      * Wywoływane przy rozłączeniu aby zapobiec race conditions.
@@ -871,7 +865,7 @@ public class ConnectionManager {
         if (address instanceof InetSocketAddress inetAddress) {
             return inetAddress.getAddress().getHostAddress();
         }
-        return StringConstants.UNKNOWN;
+        return "unknown";
     }
 
     // Helper methods for consistent messaging

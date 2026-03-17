@@ -3,6 +3,7 @@ package net.rafalohaki.veloauth.listener;
 import com.velocitypowered.api.event.connection.PreLoginEvent;
 import net.rafalohaki.veloauth.cache.AuthCache;
 import net.rafalohaki.veloauth.cache.AuthCache.PremiumCacheEntry;
+import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.database.DatabaseManager;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
@@ -27,23 +28,27 @@ public class PreLoginHandler {
     private final DatabaseManager databaseManager;
     private final Messages messages;
     private final Logger logger;
+    private final Settings settings;
 
     /**
      * Creates a new PreLoginHandler.
      *
      * @param authCache              Cache for authorization and premium status
      * @param premiumResolverService Service for resolving premium status
+         * @param settings               Plugin configuration
      * @param databaseManager        Manager for database operations
      * @param messages               i18n message system
      * @param logger                 Logger instance
      */
     public PreLoginHandler(AuthCache authCache,
-                          PremiumResolverService premiumResolverService,
-                          DatabaseManager databaseManager,
-                          Messages messages,
-                          Logger logger) {
+                   PremiumResolverService premiumResolverService,
+                   Settings settings,
+                   DatabaseManager databaseManager,
+                   Messages messages,
+                   Logger logger) {
         this.authCache = authCache;
         this.premiumResolverService = premiumResolverService;
+        this.settings = java.util.Objects.requireNonNull(settings, "settings");
         this.databaseManager = databaseManager;
         this.messages = messages;
         this.logger = logger;
@@ -60,20 +65,35 @@ public class PreLoginHandler {
             return false;
         }
 
+        String validatedUsername = stripConfiguredFloodgatePrefix(username);
+
         // Minecraft username limit: 3-16 characters
-        if (username.length() < 3 || username.length() > 16) {
+        if (validatedUsername.length() < 3 || validatedUsername.length() > 16) {
             return false;
         }
 
         // Minecraft usernames: letters, numbers, underscore
-        for (int i = 0; i < username.length(); i++) {
-            char c = username.charAt(i);
+        for (int i = 0; i < validatedUsername.length(); i++) {
+            char c = validatedUsername.charAt(i);
             if (!Character.isLetterOrDigit(c) && c != '_') {
                 return false;
             }
         }
 
         return true;
+    }
+
+    private String stripConfiguredFloodgatePrefix(String username) {
+        if (!settings.isFloodgateIntegrationEnabled()) {
+            return username;
+        }
+
+        String prefix = settings.getFloodgateUsernamePrefix();
+        if (prefix.isEmpty() || !username.startsWith(prefix)) {
+            return username;
+        }
+
+        return username.substring(prefix.length());
     }
 
     /**
@@ -87,31 +107,6 @@ public class PreLoginHandler {
             return false;
         }
         return authCache.isBlocked(address);
-    }
-
-    /**
-     * Resolves premium status with caching, TTL, and background refresh (stale-while-revalidate).
-     *
-     * @param username Username to check
-     * @return PremiumResolutionResult with status and UUID
-     */
-    public PremiumResolutionResult resolvePremiumStatus(String username) {
-        PremiumCacheEntry cachedStatus = authCache.getPremiumStatus(username);
-        if (cachedStatus != null) {
-            logger.debug("Premium cache hit dla {} -> {} (age: {}ms, TTL: {}ms)", 
-                    username, cachedStatus.isPremium(), cachedStatus.getAgeMillis(), cachedStatus.getTtlMillis());
-            
-            // Background refresh if stale (but still use cached value - stale-while-revalidate)
-            if (cachedStatus.isStale()) {
-                triggerBackgroundRefresh(username);
-            }
-            
-            return new PremiumResolutionResult(cachedStatus.isPremium(), cachedStatus.getPremiumUuid());
-        }
-
-        // Cache miss - synchronous resolution
-        PremiumResolution resolution = resolveViaServiceWithTimeout(username);
-        return cacheFromResolution(username, resolution);
     }
 
     /**
@@ -272,30 +267,6 @@ public class PreLoginHandler {
         } else if (!isPremium && existingPlayer.getConflictMode()) {
             // Case 3: Offline player accessing conflicted account
             event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
-            logger.debug("[NICKNAME CONFLICT] Offline player {} accessing conflicted account", username);
-        }
-    }
-
-    public void handleNicknameConflictNoEvent(String username, RegisteredPlayer existingPlayer,
-                                               boolean isPremium, UUID currentPremiumUuid) {
-        // Name sniping — log but can't deny without event
-        if (isPremium && currentPremiumUuid != null && existingPlayer.getPremiumUuid() != null) {
-            try {
-                UUID dbUuid = UUID.fromString(existingPlayer.getPremiumUuid());
-                if (!dbUuid.equals(currentPremiumUuid)) {
-                    logger.error("[SECURITY BREACH] Name snipe detected (no-event) for {}: " +
-                                    "DB owner UUID={}, Attacker UUID={}",
-                            username, dbUuid, currentPremiumUuid);
-                    return;
-                }
-            } catch (IllegalArgumentException ignored) {
-                // Invalid UUID in DB
-            }
-        }
-
-        if (isPremium && existingPlayer.getPremiumUuid() == null) {
-            markAsConflicted(existingPlayer, username);
-        } else if (!isPremium && existingPlayer.getConflictMode()) {
             logger.debug("[NICKNAME CONFLICT] Offline player {} accessing conflicted account", username);
         }
     }

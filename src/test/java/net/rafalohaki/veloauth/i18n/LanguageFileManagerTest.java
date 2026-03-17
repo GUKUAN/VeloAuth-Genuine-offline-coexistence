@@ -98,26 +98,4 @@ class LanguageFileManagerTest {
             languageFileManager.loadLanguageBundle("en");
         }, "Should throw IOException when no language files exist");
     }
-
-    @Test
-    void testValidateLanguageFile_ValidatesSuccessfully() throws IOException {
-        // Given
-        languageFileManager.initializeLanguageFiles();
-
-        // When/Then - should not throw exception
-        assertDoesNotThrow(() -> {
-            languageFileManager.validateLanguageFile("en");
-        }, "Validation should succeed for valid language file");
-    }
-
-    @Test
-    void testValidateLanguageFile_HandlesInvalidLanguage() throws IOException {
-        // Given
-        languageFileManager.initializeLanguageFiles();
-
-        // When/Then - should not throw exception (logs error instead)
-        assertDoesNotThrow(() -> {
-            languageFileManager.validateLanguageFile("invalid");
-        }, "Validation should handle invalid language gracefully");
-    }
 }

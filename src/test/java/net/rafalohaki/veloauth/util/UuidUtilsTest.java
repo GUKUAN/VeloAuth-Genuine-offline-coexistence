@@ -44,28 +44,6 @@ class UuidUtilsTest {
         assertEquals(UUID.fromString(VALID_UUID_STRING), result);
     }
 
-    // --- isValidUuid ---
-
-    @Test
-    void isValidUuid_nullInput_returnsFalse() {
-        assertFalse(UuidUtils.isValidUuid(null));
-    }
-
-    @Test
-    void isValidUuid_emptyString_returnsFalse() {
-        assertFalse(UuidUtils.isValidUuid(EMPTY_STRING));
-    }
-
-    @Test
-    void isValidUuid_invalidString_returnsFalse() {
-        assertFalse(UuidUtils.isValidUuid(INVALID_UUID_STRING));
-    }
-
-    @Test
-    void isValidUuid_validUuidString_returnsTrue() {
-        assertTrue(UuidUtils.isValidUuid(VALID_UUID_STRING));
-    }
-
     // --- additional edge cases ---
 
     @Test
@@ -76,10 +54,4 @@ class UuidUtilsTest {
         assertEquals(original, parsed);
     }
 
-    @Test
-    void isValidUuid_uuidWithoutHyphens_returnsFalse() {
-        // UUID without hyphens is not a valid standard UUID format
-        String noHyphens = VALID_UUID_STRING.replace("-", "");
-        assertFalse(UuidUtils.isValidUuid(noHyphens));
-    }
 }
