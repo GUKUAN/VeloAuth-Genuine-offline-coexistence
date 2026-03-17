@@ -133,15 +133,15 @@ public class DiscordWebhookClient {
 
         } catch (IOException e) {
             if (LOGGER.isWarnEnabled()) {
-                LOGGER.warn("Discord webhook IO error: {} (webhook: {})", 
-                        e.getMessage(), maskWebhookUrl());
+                LOGGER.warn("Discord webhook IO error (webhook: {})",
+                        maskWebhookUrl(), e);
             }
             return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             if (LOGGER.isWarnEnabled()) {
-                LOGGER.warn("Discord webhook interrupted: {} (webhook: {})", 
-                        e.getMessage(), maskWebhookUrl());
+                LOGGER.warn("Discord webhook interrupted (webhook: {})",
+                        maskWebhookUrl(), e);
             }
             return false;
         } catch (Exception e) {

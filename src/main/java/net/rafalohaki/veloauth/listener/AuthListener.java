@@ -293,47 +293,34 @@ public class AuthListener {
         UUID playerUuid = player.getUniqueId();
         String playerIp = PlayerAddressUtils.getPlayerIp(player);
 
-        boolean allowed = true;
-        try {
-            // CRITICAL SECURITY: Block login attempts until plugin is fully initialized
-            if (!plugin.isInitialized()) {
-                logger.warn(
-                        "🔒 STARTUP BLOCK: Player {} tried to login before VeloAuth fully initialized - login block",
-                        playerName);
-                // Use English fallback - Messages not available yet
-                event.setResult(ComponentResult.denied(
-                        Component.text(messages.get("system.starting"),
-                                NamedTextColor.RED)));
-                return;
-            }
+        // CRITICAL SECURITY: Block login attempts until plugin is fully initialized
+        if (!plugin.isInitialized()) {
+            logger.warn(
+                "🔒 STARTUP BLOCK: Player {} tried to login before VeloAuth fully initialized - login block",
+                playerName);
+            // Use English fallback - Messages not available yet
+            event.setResult(ComponentResult.denied(
+                Component.text(messages.get("system.starting"),
+                    NamedTextColor.RED)));
+            return;
+        }
 
-            logger.debug("LoginEvent dla gracza {} (UUID: {}) z IP {}",
-                    playerName, playerUuid, playerIp);
+        logger.debug("LoginEvent dla gracza {} (UUID: {}) z IP {}",
+            playerName, playerUuid, playerIp);
 
-            // 1. Check brute force block
-            InetAddress playerAddress = PlayerAddressUtils.getPlayerAddress(player);
-            if (playerAddress != null && authCache.isBlocked(playerAddress)) {
-                logger.warn(SECURITY_MARKER, "Blocked connection for player {} - too many failed login attempts",
-                        playerName);
-
-                event.setResult(ComponentResult.denied(
-                        Component.text(messages.get("security.brute_force.blocked"), NamedTextColor.RED)));
-                return;
-            }
-
-            // Premium check został przeniesiony do PreLoginEvent
-
-        } catch (Exception e) {
-            logger.error("Error handling LoginEvent for player: {}", event.getPlayer().getUsername(), e);
+        // 1. Check brute force block
+        InetAddress playerAddress = PlayerAddressUtils.getPlayerAddress(player);
+        if (playerAddress != null && authCache.isBlocked(playerAddress)) {
+            logger.warn(SECURITY_MARKER, "Blocked connection for player {} - too many failed login attempts",
+                playerName);
 
             event.setResult(ComponentResult.denied(
-                    Component.text(messages.get("connection.error.generic"), NamedTextColor.RED)));
-            allowed = false;
+                Component.text(messages.get("security.brute_force.blocked"), NamedTextColor.RED)));
+            return;
         }
 
-        if (allowed) {
-            event.setResult(ComponentResult.allowed());
-        }
+        // Premium check został przeniesiony do PreLoginEvent
+        event.setResult(ComponentResult.allowed());
     }
 
     /**
@@ -342,22 +329,17 @@ public class AuthListener {
      */
     @Subscribe(priority = 0) // NORMAL priority
     public void onDisconnect(DisconnectEvent event) {
-        try {
-            Player player = event.getPlayer();
+        Player player = event.getPlayer();
 
-            // ✅ SESJE TRWAŁE: Nie kończ sesji przy rozłączeniu
-            // Sesje powinny być trwałe dla autoryzowanych graczy offline
-            // Kończymy tylko przy /logout, timeout lub banie
-            
-            // Cleanup retry attempts counter to prevent memory leak
-            connectionManager.clearRetryAttempts(player.getUniqueId());
+        // ✅ SESJE TRWAŁE: Nie kończ sesji przy rozłączeniu
+        // Sesje powinny być trwałe dla autoryzowanych graczy offline
+        // Kończymy tylko przy /logout, timeout lub banie
 
-            if (logger.isDebugEnabled()) {
-                logger.debug("Gracz {} rozłączył się - sesja pozostaje aktywna", player.getUsername());
-            }
+        // Cleanup retry attempts counter to prevent memory leak
+        connectionManager.clearRetryAttempts(player.getUniqueId());
 
-        } catch (Exception e) {
-            logger.error("Błąd podczas obsługi DisconnectEvent dla gracza: {}", event.getPlayer().getUsername(), e);
+        if (logger.isDebugEnabled()) {
+            logger.debug("Gracz {} rozłączył się - sesja pozostaje aktywna", player.getUsername());
         }
     }
 
