@@ -132,21 +132,23 @@ public class PremiumResolverService {
     private ResolverResults executeResolversInParallel(List<PremiumResolver> enabledResolvers, String trimmed) {
         AtomicReference<PremiumResolution> premiumResult = new AtomicReference<>();
         AtomicReference<PremiumResolution> offlineCandidate = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger unknownCount = new java.util.concurrent.atomic.AtomicInteger(0);
 
         List<CompletableFuture<PremiumResolution>> futures = enabledResolvers.stream()
-                .map(resolver -> createResolverFuture(resolver, trimmed, premiumResult, offlineCandidate))
+                .map(resolver -> createResolverFuture(resolver, trimmed, premiumResult, offlineCandidate, unknownCount))
                 .toList();
 
         awaitResolverFutures(futures);
-        return new ResolverResults(premiumResult.get(), offlineCandidate.get());
+        return new ResolverResults(premiumResult.get(), offlineCandidate.get(), unknownCount.get() > 0);
     }
 
     private CompletableFuture<PremiumResolution> createResolverFuture(
             PremiumResolver resolver, String trimmed,
             AtomicReference<PremiumResolution> premiumResult,
-            AtomicReference<PremiumResolution> offlineCandidate) {
+            AtomicReference<PremiumResolution> offlineCandidate,
+            java.util.concurrent.atomic.AtomicInteger unknownCount) {
         return CompletableFuture.supplyAsync(
-                () -> executeResolver(resolver, trimmed, premiumResult, offlineCandidate),
+                () -> executeResolver(resolver, trimmed, premiumResult, offlineCandidate, unknownCount),
                 net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider.getVirtualExecutor()
         );
     }
@@ -154,11 +156,12 @@ public class PremiumResolverService {
     private PremiumResolution executeResolver(
             PremiumResolver resolver, String trimmed,
             AtomicReference<PremiumResolution> premiumResult,
-            AtomicReference<PremiumResolution> offlineCandidate) {
+            AtomicReference<PremiumResolution> offlineCandidate,
+            java.util.concurrent.atomic.AtomicInteger unknownCount) {
         try {
             PremiumResolution rawResolution = resolver.resolve(trimmed);
             PremiumResolution resolution = normalizeResolution(resolver, rawResolution, trimmed);
-            categorizeResolution(resolver, resolution, trimmed, premiumResult, offlineCandidate);
+            categorizeResolution(resolver, resolution, trimmed, premiumResult, offlineCandidate, unknownCount);
             return resolution;
         } catch (Exception e) {
             logResolverFailure(resolver, trimmed, e);
@@ -169,15 +172,19 @@ public class PremiumResolverService {
     private void categorizeResolution(
             PremiumResolver resolver, PremiumResolution resolution, String trimmed,
             AtomicReference<PremiumResolution> premiumResult,
-            AtomicReference<PremiumResolution> offlineCandidate) {
+            AtomicReference<PremiumResolution> offlineCandidate,
+            java.util.concurrent.atomic.AtomicInteger unknownCount) {
         if (resolution.isPremium()) {
             premiumResult.compareAndSet(null, resolution);
             logResolutionResult(resolver, trimmed, "PREMIUM");
         } else if (resolution.isOffline()) {
             offlineCandidate.compareAndSet(null, resolution);
             logResolutionResult(resolver, trimmed, "OFFLINE");
-        } else if (logger.isDebugEnabled()) {
-            logger.debug("[PARALLEL] {} returned UNKNOWN for {}: {}", resolver.id(), trimmed, resolution.message());
+        } else {
+            unknownCount.incrementAndGet();
+            if (logger.isDebugEnabled()) {
+                logger.debug("[PARALLEL] {} returned UNKNOWN for {}: {}", resolver.id(), trimmed, resolution.message());
+            }
         }
     }
 
@@ -216,6 +223,12 @@ public class PremiumResolverService {
         }
 
         if (results.offline() != null) {
+            if (results.hasUnknown()) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug("[PARALLEL] OFFLINE overridden by UNKNOWN for {} - not all resolvers confirmed offline", trimmed);
+                }
+                return PremiumResolution.unknown(RESOLVER_SERVICE, "offline not confirmed by all resolvers");
+            }
             if (logger.isDebugEnabled()) {
                 logger.debug("[PARALLEL] All resolvers returned offline for {}", trimmed);
             }
@@ -228,7 +241,7 @@ public class PremiumResolverService {
         return PremiumResolution.unknown(RESOLVER_SERVICE, "all resolvers failed");
     }
 
-    private record ResolverResults(PremiumResolution premium, PremiumResolution offline) {}
+    private record ResolverResults(PremiumResolution premium, PremiumResolution offline, boolean hasUnknown) {}
 
     /**
      * Saves premium resolution to database cache.

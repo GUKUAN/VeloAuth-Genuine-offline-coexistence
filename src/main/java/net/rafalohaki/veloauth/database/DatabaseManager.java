@@ -786,8 +786,8 @@ public class DatabaseManager {
             return false;
         }
         
-        String hash = player.getHash();
-        return hash == null || hash.isEmpty() || hash.isBlank();
+        String premiumUuid = player.getPremiumUuid();
+        return premiumUuid != null && !premiumUuid.isEmpty();
     }
 
     private void logRuntimeDetection(String nickname, boolean isPremium, String hash) {

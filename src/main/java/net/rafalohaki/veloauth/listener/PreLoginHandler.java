@@ -11,6 +11,8 @@ import net.rafalohaki.veloauth.premium.PremiumResolution;
 import net.rafalohaki.veloauth.premium.PremiumResolverService;
 import net.rafalohaki.veloauth.util.VirtualThreadExecutorProvider;
 import org.slf4j.Logger;
+import org.slf4j.Marker;
+import org.slf4j.MarkerFactory;
 
 import java.net.InetAddress;
 import java.util.UUID;
@@ -23,6 +25,8 @@ import static java.util.Objects.requireNonNull;
  * Extracted from AuthListener to reduce complexity and improve testability.
  */
 public class PreLoginHandler {
+
+    private static final Marker SECURITY_MARKER = MarkerFactory.getMarker("SECURITY");
 
     private final AuthCache authCache;
     private final PremiumResolverService premiumResolverService;
@@ -135,10 +139,10 @@ public class PreLoginHandler {
         // Cache miss — async resolution (does NOT block Netty IO thread)
         return CompletableFuture.supplyAsync(() -> premiumResolverService.resolve(username))
                 .exceptionally(throwable -> {
-                    logger.warn("Premium resolution failed for {} - fallback to offline: {}",
+                    logger.warn(SECURITY_MARKER, "Premium resolution failed for {} - denying login: {}",
                             username, describeThrowable(throwable));
-                    return PremiumResolution.offline(username, "VeloAuth-Timeout",
-                            "Timeout - fallback to offline");
+                    return PremiumResolution.unknown("VeloAuth-Timeout",
+                            "Timeout - cannot verify premium status");
                 })
                 .thenApply(resolution -> cacheFromResolution(username, resolution));
     }
@@ -243,9 +247,16 @@ public class PreLoginHandler {
             // Fire-and-forget: don't block Netty IO thread with .join()
             databaseManager.savePlayer(existingPlayer)
                     .exceptionally(throwable -> {
-                        logger.error("[NICKNAME CONFLICT] Failed to save conflict state for {}: {}",
+                        logger.error(SECURITY_MARKER, "[NICKNAME CONFLICT] Failed to save conflict state for {}: {}",
                                 username, throwable.getMessage());
                         return null;
+                    })
+                    .thenAccept(result -> {
+                        if (result != null && result.isDatabaseError()) {
+                            logger.error(SECURITY_MARKER,
+                                    "[NICKNAME CONFLICT] Database error saving conflict state for {}: {}",
+                                    username, result.getErrorMessage());
+                        }
                     });
             logger.info("[NICKNAME CONFLICT] Premium player {} detected conflict with offline account", username);
         }
@@ -295,8 +306,12 @@ public class PreLoginHandler {
                                 messages.get("security.name_snipe.denied"),
                                 net.kyori.adventure.text.format.NamedTextColor.RED)));
             }
-        } catch (IllegalArgumentException ignored) {
-            // Invalid UUID in DB — fall through to other conflict handling
+        } catch (IllegalArgumentException ex) {
+            logger.error(SECURITY_MARKER, "Malformed UUID for {} in database: {}", username, ex.getMessage());
+            event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
+                    net.kyori.adventure.text.Component.text(
+                            messages.get("security.name_snipe.denied"),
+                            net.kyori.adventure.text.format.NamedTextColor.RED)));
         }
     }
 

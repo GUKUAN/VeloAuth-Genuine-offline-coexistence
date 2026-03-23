@@ -30,6 +30,9 @@ import org.slf4j.Logger;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Velocity proxy authentication plugin.
@@ -63,6 +66,7 @@ public class VeloAuth {
     private ConnectionManager connectionManager;
     private AuthListener authListener;
     private PremiumResolverService premiumResolverService;
+    private ScheduledExecutorService premiumCacheCleanupScheduler;
 
     // Status pluginu
     // CRITICAL: This flag protects against early connections during initialization
@@ -353,6 +357,22 @@ public class VeloAuth {
             databaseManager.setAuthCacheReference(authCache);
             logger.debug("AuthCache reference set in DatabaseManager");
         }
+
+        // Schedule dedicated premium cache cleanup at the same interval as auth cache cleanup
+        int cleanupInterval = settings.getCacheCleanupIntervalMinutes();
+        if (cleanupInterval > 0) {
+            premiumCacheCleanupScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "VeloAuth-PremiumCacheCleanup");
+                t.setDaemon(true);
+                return t;
+            });
+            premiumCacheCleanupScheduler.scheduleAtFixedRate(
+                    authCache::cleanExpiredPremiumEntries,
+                    cleanupInterval,
+                    cleanupInterval,
+                    TimeUnit.MINUTES
+            );
+        }
         
         logger.debug("✅ Cache initialized in {} ms (TTL: {} min, Max size: {}, Premium cache: 10000)", 
                 System.currentTimeMillis() - startTime, 
@@ -507,6 +527,11 @@ public class VeloAuth {
                 logger.debug("AuthCache zamknięty");
             }
 
+            if (premiumCacheCleanupScheduler != null) {
+                premiumCacheCleanupScheduler.shutdown();
+                logger.debug("Premium cache cleanup scheduler zamknięty");
+            }
+
             // 5. Zamknij DB connection jako ostatni
             if (databaseManager != null) {
                 databaseManager.shutdown();
@@ -562,6 +587,7 @@ public class VeloAuth {
                 if (logger.isInfoEnabled()) {
                     logger.info(messages.get("config.reloaded_success"));
                 }
+                logger.warn("Changes to database, auth-server, premium-resolver, and floodgate settings require a full server restart to take effect.");
                 logStartupInfo(0); // Pass 0 as duration for reload
                 return languageReloaded; // Return true only if both succeeded
             } else {

@@ -90,17 +90,22 @@ class BruteForceTracker {
             return false;
         }
 
-        BruteForceEntry entry = bruteForceAttempts.get(address);
-        if (entry == null) {
-            return false;
-        }
+        lock.lock();
+        try {
+            BruteForceEntry entry = bruteForceAttempts.get(address);
+            if (entry == null) {
+                return false;
+            }
 
-        if (entry.isExpired(bruteForceTimeoutMinutes)) {
-            bruteForceAttempts.remove(address);
-            return false;
-        }
+            if (entry.isExpired(bruteForceTimeoutMinutes)) {
+                bruteForceAttempts.remove(address);
+                return false;
+            }
 
-        return entry.getAttempts() >= maxLoginAttempts;
+            return entry.getAttempts() >= maxLoginAttempts;
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**

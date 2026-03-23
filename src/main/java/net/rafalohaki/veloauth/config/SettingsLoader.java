@@ -268,9 +268,9 @@ final class SettingsLoader {
             logger.info("Parsed connection URL: {}@{}:{}/{}",
                     state.databaseUser, state.databaseHostname, state.databasePort, state.databaseName);
         } catch (StringIndexOutOfBoundsException e) {
-            logger.error("Invalid database connection URL format: {}", connectionUrl, e);
+            logger.error("Invalid database connection URL format: {}", connectionUrl.replaceAll("://[^@]+@", "://[REDACTED]@"), e);
         } catch (IllegalArgumentException e) {
-            logger.error("Invalid connection URL parameters: {}", connectionUrl, e);
+            logger.error("Invalid connection URL parameters: {}", connectionUrl.replaceAll("://[^@]+@", "://[REDACTED]@"), e);
         }
     }
 

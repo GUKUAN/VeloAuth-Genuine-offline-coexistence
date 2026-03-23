@@ -111,6 +111,7 @@ final class DefaultConfigGenerator {
                 # Compatible with: NanoLimbo, LOOHP/Limbo, LimboService, PicoLimbo, hpfxd/Limbo
                 auth-server:
                   server-name: limbo # Must match server name in velocity.toml [servers]
+                  # NOTE: This option is not yet implemented and has no effect
                   timeout-seconds: 300 # Seconds before unauthenticated player is kicked""";
 
     private static final String CONNECTION_SECTION = """
@@ -135,6 +136,7 @@ final class DefaultConfigGenerator {
                 # Premium account detection configuration
                 premium:
                   check-enabled: true # Enable premium account verification
+                  # NOTE: This option is not yet implemented and has no effect
                   online-mode-need-auth: false # Force auth for premium players on online-mode proxies
                   resolver:
                     mojang-enabled: true # Query Mojang API

@@ -71,6 +71,8 @@ public class AuthCache {
     private final int ttlMinutes;
     private final int maxSize;
     private final int maxPremiumCache;
+    private static final long NEGATIVE_PREMIUM_TTL_MINUTES = 5;
+
     private final int premiumTtlHours;
     private final double premiumRefreshThreshold;
 
@@ -281,7 +283,9 @@ public class AuthCache {
             evictOldestPremiumEntryAtomic();
         }
 
-        long ttl = TimeUnit.HOURS.toMillis(premiumTtlHours);
+        long ttl = (premiumUuid == null)
+                ? TimeUnit.MINUTES.toMillis(NEGATIVE_PREMIUM_TTL_MINUTES)
+                : TimeUnit.HOURS.toMillis(premiumTtlHours);
         PremiumCacheEntry entry = new PremiumCacheEntry(premiumUuid != null, premiumUuid, ttl, premiumRefreshThreshold);
         premiumCache.put(key, entry);
 
@@ -386,6 +390,21 @@ public class AuthCache {
             }
         } catch (Exception e) {
             logger.error("Błąd podczas czyszczenia cache", e);
+        }
+    }
+
+    /**
+     * Cleans expired premium cache entries.
+     * Can be scheduled independently for dedicated premium cache maintenance.
+     */
+    public void cleanExpiredPremiumEntries() {
+        try {
+            int removed = cleanupPremium();
+            if (removed > 0) {
+                logger.debug("Premium cache cleanup: removed {} expired entries", removed);
+            }
+        } catch (Exception e) {
+            logger.error("Error during premium cache cleanup", e);
         }
     }
 

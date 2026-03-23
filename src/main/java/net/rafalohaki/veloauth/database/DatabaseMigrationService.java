@@ -205,9 +205,7 @@ public class DatabaseMigrationService {
         try {
             executeUpdate(connectionSource, sql);
         } catch (SQLException e) {
-            if (logger.isDebugEnabled()) {
-                logger.debug("Index creation failed (may already exist): {}", e.getMessage());
-            }
+            logger.warn(DB_MARKER, "Index creation failed (may already exist): {}", e.getMessage());
         }
     }
 
