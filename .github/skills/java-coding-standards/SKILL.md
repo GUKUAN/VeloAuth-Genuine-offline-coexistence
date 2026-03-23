@@ -392,6 +392,17 @@ public final class JdbcAuthDao {
 }
 ```
 
+## ⚠️ ORMLite Pitfalls
+
+ORMLite has subtle API requirements that differ from plain JDBC. **Always verify ORMLite API docs before writing DAO code.**
+
+Key rules:
+- `SelectArg` in `.raw()` queries **requires** `SqlType` or column name — bare `new SelectArg(value)` compiles but throws at runtime
+- `executeStatement()` second parameter must be `DatabaseConnection.DEFAULT_RESULT_FLAGS` — passing literal `0` works on H2 but throws on PostgreSQL
+- Tests use H2 in-memory, production uses PostgreSQL — **passing tests does NOT guarantee production correctness**
+- H2 is case-insensitive by default, PostgreSQL is case-sensitive — use explicit `LOWER()` for case-insensitive matching
+- Column quoting differs: `"COLUMN"` for PostgreSQL, `` `COLUMN` `` for MySQL — ORMLite handles this if you use its query builder, but raw SQL needs dialect awareness
+
 ## Builder Pattern
 
 Use builders for objects with many configuration parameters.
@@ -473,7 +484,7 @@ src/test/java/...                → Mirrors main structure
 
 - Use JSR-305 annotations: `@javax.annotation.Nullable`, `@javax.annotation.Nonnull`
 - Constructor/setter validation for required parameters
-- `RegisteredPlayer.hash == null || hash.isEmpty()` → player is premium (domain convention)
+- Premium detection depends on multiple nullable fields — see "Domain Semantics" section
 
 ## Testing Expectations
 
@@ -519,6 +530,26 @@ class ValidationUtilsTest {
 - Hardcoded player messages → `messages_XX.properties`
 - SQL outside DAO classes → move to `*Dao` or `DatabaseStatisticsQueryService`
 - `System.out.println` → SLF4J with appropriate marker
+
+## ⚠️ Domain Semantics — Premium Player Detection
+
+Premium detection uses multiple complementary fields in the AUTH table. All premium-checking methods and SQL queries must be consistent with each other.
+
+- When modifying any premium detection logic, first read ALL existing premium-checking methods and their SQL equivalents
+- Premium state can come from multiple sources (Mojang API, migration, admin action) — never assume only one path sets premium fields
+- The PREMIUM_UUIDS table is a **cache**, not the source of truth — AUTH table is authoritative
+- Before changing premium logic, verify behavior for: new premium players, migrated players, offline→premium transitions, and players with partial data
+
+## ⛔ Change Safety Rules
+
+**Before modifying ANY existing method:**
+
+1. **Find ALL callers** — understand every call site before changing behavior
+2. **Preserve semantics** — if a method returns X for input Y, your change MUST return X for Y unless the bug IS that wrong value
+3. **Never change a method's contract silently** — if you must change semantics, rename the method or add a new one
+4. **Verify on production DB type** — H2 tests passing ≠ PostgreSQL working. Check ORMLite API contracts manually
+5. **One concern per change** — don't mix "improve logging" with "change query logic" in the same method edit
+6. **Async I/O must use virtual threads** — every `CompletableFuture.supplyAsync()` with I/O needs an explicit executor, never default ForkJoinPool
 
 ## Build & Static Analysis
 

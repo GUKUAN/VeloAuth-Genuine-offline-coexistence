@@ -137,12 +137,13 @@ public class PreLoginHandler {
         }
 
         // Cache miss — async resolution (does NOT block Netty IO thread)
-        return CompletableFuture.supplyAsync(() -> premiumResolverService.resolve(username))
+        return CompletableFuture.supplyAsync(() -> premiumResolverService.resolve(username),
+                        VirtualThreadExecutorProvider.getVirtualExecutor())
                 .exceptionally(throwable -> {
                     logger.warn(SECURITY_MARKER, "Premium resolution failed for {} - denying login: {}",
                             username, describeThrowable(throwable));
-                    return PremiumResolution.unknown("VeloAuth-Timeout",
-                            "Timeout - cannot verify premium status");
+                    return PremiumResolution.unknown("VeloAuth-Error",
+                            "Exception during premium resolution: " + describeThrowable(throwable));
                 })
                 .thenApply(resolution -> cacheFromResolution(username, resolution));
     }

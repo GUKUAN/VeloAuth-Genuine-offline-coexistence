@@ -50,7 +50,7 @@ public class PremiumUuidDao {
         try {
             List<PremiumUuid> results = dao.queryBuilder()
                     .where()
-                    .raw("LOWER(NICKNAME) = ?", new com.j256.ormlite.stmt.SelectArg(nickname.toLowerCase(java.util.Locale.ROOT)))
+                    .raw("LOWER(NICKNAME) = ?", new com.j256.ormlite.stmt.SelectArg(com.j256.ormlite.field.SqlType.STRING, nickname.toLowerCase(java.util.Locale.ROOT)))
                     .query();
 
             if (results.isEmpty()) {

@@ -80,6 +80,9 @@ class RegisterCommand implements SimpleCommand {
 
     private void processRegistration(Player player, String password) {
         if (!ctx.tryAcquireCommandLock(player.getUniqueId())) {
+            player.sendMessage(net.kyori.adventure.text.Component.text(
+                    ctx.messages().get("auth.command.in_progress"),
+                    net.kyori.adventure.text.format.NamedTextColor.YELLOW));
             return;
         }
         try {

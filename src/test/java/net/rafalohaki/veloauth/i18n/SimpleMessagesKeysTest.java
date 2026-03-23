@@ -54,6 +54,7 @@ class SimpleMessagesKeysTest {
             "auth.changepassword.incorrect_old_password",
             "auth.register.passwords_no_match",
             "register.ip_limit_reached",
+            "auth.command.in_progress",
             // Admin unregister
             "admin.unregister.usage",
             // Error messages

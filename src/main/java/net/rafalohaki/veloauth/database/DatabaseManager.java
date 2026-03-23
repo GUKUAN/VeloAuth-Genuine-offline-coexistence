@@ -816,9 +816,18 @@ public class DatabaseManager {
         if (player == null) {
             return false;
         }
-        
+
+        // Primary: premiumUuid is the authoritative premium marker (set by PostAuthFlow)
         String premiumUuid = player.getPremiumUuid();
-        return premiumUuid != null && !premiumUuid.isEmpty();
+        if (premiumUuid != null && !premiumUuid.isEmpty()) {
+            return true;
+        }
+
+        // Fallback: LimboAuth compatibility — premium players have null/empty hash.
+        // Keeps isPlayerPremiumRuntime consistent with getTotalPremiumAccounts() SQL:
+        //   PREMIUMUUID IS NOT NULL OR HASH IS NULL
+        String hash = player.getHash();
+        return hash == null || hash.isEmpty();
     }
 
     private void logRuntimeDetection(String nickname, boolean isPremium, String hash) {
