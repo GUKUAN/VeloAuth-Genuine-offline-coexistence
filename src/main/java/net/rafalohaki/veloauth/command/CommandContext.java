@@ -16,6 +16,8 @@ import org.slf4j.Marker;
 import org.slf4j.MarkerFactory;
 
 import java.net.InetAddress;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Shared context for all command implementations.
@@ -33,6 +35,7 @@ class CommandContext {
     private final Logger logger;
     private final SimpleMessages sm;
     private final IPRateLimiter ipRateLimiter;
+    private final ConcurrentHashMap<UUID, Boolean> activeCommands = new ConcurrentHashMap<>();
 
     CommandContext(VeloAuth plugin, DatabaseManager databaseManager,
                    AuthCache authCache, Settings settings, Messages messages) {
@@ -126,5 +129,24 @@ class CommandContext {
      */
     void sendDatabaseErrorMessage(Player player) {
         player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
+    }
+
+    /**
+     * Tries to acquire a per-player command lock to prevent concurrent command execution.
+     *
+     * @param playerId UUID of the player
+     * @return true if lock acquired, false if already processing
+     */
+    boolean tryAcquireCommandLock(UUID playerId) {
+        return activeCommands.putIfAbsent(playerId, Boolean.TRUE) == null;
+    }
+
+    /**
+     * Releases the per-player command lock.
+     *
+     * @param playerId UUID of the player
+     */
+    void releaseCommandLock(UUID playerId) {
+        activeCommands.remove(playerId);
     }
 }

@@ -4,8 +4,11 @@ import at.favre.lib.crypto.bcrypt.BCrypt;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
+import net.kyori.adventure.text.Component;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import net.rafalohaki.veloauth.util.PlayerAddressUtils;
+
+import java.net.InetAddress;
 
 /**
  * Handles the /register command.
@@ -76,37 +79,58 @@ class RegisterCommand implements SimpleCommand {
     }
 
     private void processRegistration(Player player, String password) {
-        AuthenticationContext authContext = ctx.validateAndAuthenticatePlayer(player, "registration");
-        if (authContext == null) {
+        if (!ctx.tryAcquireCommandLock(player.getUniqueId())) {
             return;
         }
+        try {
+            InetAddress playerAddress = PlayerAddressUtils.getPlayerAddress(player);
+            if (playerAddress != null && ctx.ipRateLimiter().isRateLimited(playerAddress)) {
+                player.sendMessage(ctx.sm().bruteForceBlocked());
+                return;
+            }
 
-        if (authContext.registeredPlayer() != null) {
-            authContext.player().sendMessage(ctx.sm().alreadyRegistered());
-            return;
+            AuthenticationContext authContext = ctx.validateAndAuthenticatePlayer(player, "registration");
+            if (authContext == null) {
+                return;
+            }
+
+            if (authContext.registeredPlayer() != null) {
+                authContext.player().sendMessage(ctx.sm().alreadyRegistered());
+                return;
+            }
+
+            // Check IP registration limit
+            String playerIp = PlayerAddressUtils.getPlayerIp(authContext.player());
+            long ipCount = ctx.databaseManager().countRegistrationsByIp(playerIp).join();
+            if (ipCount >= ctx.settings().getIpLimitRegistrations()) {
+                player.sendMessage(Component.text(ctx.messages().get("register.ip_limit_reached")));
+                return;
+            }
+
+            String hashedPassword = BCrypt.with(BCrypt.Version.VERSION_2Y)
+                    .hashToString(ctx.settings().getBcryptCost(), password.toCharArray());
+
+            RegisteredPlayer newPlayer = new RegisteredPlayer(
+                    authContext.username(), hashedPassword,
+                    PlayerAddressUtils.getPlayerIp(authContext.player()),
+                    authContext.player().getUniqueId().toString()
+            );
+
+            var saveResult = ctx.databaseManager().savePlayer(newPlayer).join();
+            if (ctx.handleDatabaseError(saveResult, authContext.player(), "Failed to save new player")) {
+                return;
+            }
+
+            boolean saved = Boolean.TRUE.equals(saveResult.getValue());
+            if (!saved) {
+                ctx.sendDatabaseErrorMessage(authContext.player());
+                return;
+            }
+
+            authContext.player().sendMessage(ctx.sm().registerSuccess());
+            PostAuthFlow.execute(ctx, authContext, newPlayer, "registered");
+        } finally {
+            ctx.releaseCommandLock(player.getUniqueId());
         }
-
-        String hashedPassword = BCrypt.with(BCrypt.Version.VERSION_2Y)
-                .hashToString(ctx.settings().getBcryptCost(), password.toCharArray());
-
-        RegisteredPlayer newPlayer = new RegisteredPlayer(
-                authContext.username(), hashedPassword,
-                PlayerAddressUtils.getPlayerIp(authContext.player()),
-                authContext.player().getUniqueId().toString()
-        );
-
-        var saveResult = ctx.databaseManager().savePlayer(newPlayer).join();
-        if (ctx.handleDatabaseError(saveResult, authContext.player(), "Failed to save new player")) {
-            return;
-        }
-
-        boolean saved = Boolean.TRUE.equals(saveResult.getValue());
-        if (!saved) {
-            ctx.sendDatabaseErrorMessage(authContext.player());
-            return;
-        }
-
-        authContext.player().sendMessage(ctx.sm().registerSuccess());
-        PostAuthFlow.execute(ctx, authContext, newPlayer, "registered");
     }
 }

@@ -578,6 +578,32 @@ public class DatabaseManager {
         return submitConnectedTask(() -> executePlayerDelete(normalizedNickname));
     }
 
+    /**
+     * Counts registrations from a specific IP address.
+     */
+    public CompletableFuture<Long> countRegistrationsByIp(String ip) {
+        if (ip == null || ip.isEmpty()) {
+            return CompletableFuture.completedFuture(0L);
+        }
+
+        return CompletableFuture.supplyAsync(() -> {
+            if (!connected) {
+                if (logger.isWarnEnabled()) {
+                    logger.warn(DB_MARKER, DATABASE_NOT_CONNECTED);
+                }
+                return 0L;
+            }
+            try {
+                return jdbcAuthDao.countRegistrationsByIp(ip);
+            } catch (SQLException e) {
+                if (logger.isErrorEnabled()) {
+                    logger.error(DB_MARKER, "Error counting registrations by IP: {}", ip, e);
+                }
+                return 0L;
+            }
+        }, dbExecutor);
+    }
+
     private <T> CompletableFuture<DbResult<T>> submitConnectedTask(Supplier<DbResult<T>> task) {
         DbResult<T> executorState = checkExecutorState();
         if (executorState != null) {

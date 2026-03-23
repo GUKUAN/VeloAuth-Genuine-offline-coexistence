@@ -24,6 +24,19 @@ class ChangePasswordCommand implements SimpleCommand {
         this.ctx = ctx;
     }
 
+    /**
+     * Restricts this command to players who are already authenticated.
+     * Unauthenticated players cannot change passwords — prevents brute-force vector.
+     */
+    @Override
+    public boolean hasPermission(Invocation invocation) {
+        if (!(invocation.source() instanceof Player player)) {
+            return true;
+        }
+        return ctx.authCache().isPlayerAuthorized(
+                player.getUniqueId(), PlayerAddressUtils.getPlayerIp(player));
+    }
+
     @Override
     @SuppressWarnings("FutureReturnValueIgnored")
     public void execute(Invocation invocation) {
@@ -115,6 +128,7 @@ class ChangePasswordCommand implements SimpleCommand {
             ctx.authCache().removePremiumPlayer(authCtx.username());
         }
         ctx.authCache().endSession(authCtx.player().getUniqueId());
+        ctx.authCache().removeAuthorizedPlayer(authCtx.player().getUniqueId());
 
         // Disconnect duplicate sessions for the same username
         ctx.plugin().getServer().getAllPlayers().stream()

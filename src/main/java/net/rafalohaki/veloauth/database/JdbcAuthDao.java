@@ -167,6 +167,28 @@ public final class JdbcAuthDao {
     }
 
     /**
+     * Counts registrations from a specific IP address.
+     *
+     * @param ip IP address to count registrations for
+     * @return number of registrations from this IP
+     */
+    @SuppressWarnings("java:S2077")
+    public long countRegistrationsByIp(String ip) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM " + table(TABLE_AUTH)
+                + WHERE_CLAUSE + column(COL_IP) + " = ?";
+        try (Connection connection = openConnection();
+                PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, ip);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return resultSet.getLong(1);
+                }
+                return 0;
+            }
+        }
+    }
+
+    /**
      * Wykonuje prosty health check bazy danych.
      * Zwraca true jeśli połączenie jest zdrowe.
      */

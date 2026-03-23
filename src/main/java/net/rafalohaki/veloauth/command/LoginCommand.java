@@ -7,6 +7,8 @@ import com.velocitypowered.api.proxy.Player;
 import net.rafalohaki.veloauth.util.PlayerAddressUtils;
 import net.rafalohaki.veloauth.util.SecurityUtils;
 
+import java.net.InetAddress;
+
 /**
  * Handles the /login command.
  * Validates credentials against the database and delegates
@@ -60,32 +62,45 @@ class LoginCommand implements SimpleCommand {
     private void processLogin(CommandSource source, String password) {
         Player player = (Player) source;
 
-        AuthenticationContext authContext = ctx.validateAndAuthenticatePlayer(source, "login");
-        if (authContext == null) {
+        if (!ctx.tryAcquireCommandLock(player.getUniqueId())) {
             return;
         }
+        try {
+            InetAddress playerAddress = PlayerAddressUtils.getPlayerAddress(player);
+            if (playerAddress != null && ctx.ipRateLimiter().isRateLimited(playerAddress)) {
+                player.sendMessage(ctx.sm().bruteForceBlocked());
+                return;
+            }
 
-        if (ctx.authCache().isPlayerAuthorized(player.getUniqueId(), PlayerAddressUtils.getPlayerIp(player))) {
-            player.sendMessage(ctx.sm().alreadyLogged());
-            return;
-        }
+            AuthenticationContext authContext = ctx.validateAndAuthenticatePlayer(source, "login");
+            if (authContext == null) {
+                return;
+            }
 
-        if (authContext.registeredPlayer() == null) {
-            player.sendMessage(ctx.sm().notRegistered());
-            return;
-        }
-        String hash = authContext.registeredPlayer().getHash();
-        if (hash == null || hash.isBlank()) {
-            player.sendMessage(ctx.sm().notRegistered());
-            return;
-        }
+            if (ctx.authCache().isPlayerAuthorized(player.getUniqueId(), PlayerAddressUtils.getPlayerIp(player))) {
+                player.sendMessage(ctx.sm().alreadyLogged());
+                return;
+            }
 
-        BCrypt.Result result = BCrypt.verifyer().verify(password.toCharArray(), hash);
+            if (authContext.registeredPlayer() == null) {
+                player.sendMessage(ctx.sm().notRegistered());
+                return;
+            }
+            String hash = authContext.registeredPlayer().getHash();
+            if (hash == null || hash.isBlank()) {
+                player.sendMessage(ctx.sm().notRegistered());
+                return;
+            }
 
-        if (result.verified) {
-            handleSuccessfulLogin(authContext);
-        } else {
-            handleFailedLogin(authContext);
+            BCrypt.Result result = BCrypt.verifyer().verify(password.toCharArray(), hash);
+
+            if (result.verified) {
+                handleSuccessfulLogin(authContext);
+            } else {
+                handleFailedLogin(authContext);
+            }
+        } finally {
+            ctx.releaseCommandLock(player.getUniqueId());
         }
     }
 
@@ -111,6 +126,11 @@ class LoginCommand implements SimpleCommand {
 
     private void handleFailedLogin(AuthenticationContext authContext) {
         boolean blocked = SecurityUtils.registerFailedLogin(authContext.playerAddress(), ctx.authCache());
+
+        InetAddress playerAddress = authContext.playerAddress();
+        if (playerAddress != null) {
+            ctx.ipRateLimiter().incrementAttempts(playerAddress);
+        }
 
         if (blocked) {
             authContext.player().sendMessage(ctx.sm().bruteForceBlocked());
