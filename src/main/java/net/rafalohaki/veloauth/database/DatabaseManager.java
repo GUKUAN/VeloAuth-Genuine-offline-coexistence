@@ -755,6 +755,37 @@ public class DatabaseManager {
     public PremiumUuidDao getPremiumUuidDao() {
         return premiumUuidDao;
     }
+
+    /**
+     * Saves or updates a premium UUID entry in the PREMIUM_UUIDS table.
+     * Keeps PREMIUM_UUIDS in sync with AUTH.PREMIUMUUID field.
+     *
+     * @param username    player nickname
+     * @param premiumUuid player's premium UUID
+     * @return future resolving to true if saved successfully
+     */
+    public CompletableFuture<DbResult<Boolean>> savePremiumUuid(String username, UUID premiumUuid) {
+        if (username == null || premiumUuid == null) {
+            return CompletableFuture.completedFuture(DbResult.success(false));
+        }
+
+        return submitConnectedTask(() -> {
+            try {
+                boolean success = premiumUuidDao.saveOrUpdate(premiumUuid, username);
+                if (logger.isDebugEnabled()) {
+                    logger.debug(DB_MARKER, "Synced PREMIUM_UUIDS for {}: {} (success={})",
+                            username, premiumUuid, success);
+                }
+                return DbResult.success(success);
+            } catch (RuntimeException e) {
+                if (logger.isErrorEnabled()) {
+                    logger.error(DB_MARKER, "Error syncing PREMIUM_UUIDS for {}: {}",
+                            username, premiumUuid, e);
+                }
+                return genericDatabaseErrorResult();
+            }
+        });
+    }
     
     public void setAuthCacheReference(net.rafalohaki.veloauth.cache.AuthCache authCache) {
         if (authCache != null) {

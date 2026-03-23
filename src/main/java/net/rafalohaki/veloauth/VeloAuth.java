@@ -67,6 +67,7 @@ public class VeloAuth {
     private AuthListener authListener;
     private PremiumResolverService premiumResolverService;
     private ScheduledExecutorService premiumCacheCleanupScheduler;
+    private ScheduledExecutorService premiumDbCleanupScheduler;
 
     // Status pluginu
     // CRITICAL: This flag protects against early connections during initialization
@@ -373,6 +374,27 @@ public class VeloAuth {
                     TimeUnit.MINUTES
             );
         }
+
+        // Schedule periodic cleanup of expired PREMIUM_UUIDS entries from the database
+        long premiumTtlMinutes = (long) settings.getPremiumTtlHours() * 60;
+        if (premiumTtlMinutes > 0 && databaseManager != null) {
+            premiumDbCleanupScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                Thread t = new Thread(r, "VeloAuth-PremiumDbCleanup");
+                t.setDaemon(true);
+                return t;
+            });
+            premiumDbCleanupScheduler.scheduleAtFixedRate(() -> {
+                try {
+                    int cleaned = databaseManager.getPremiumUuidDao()
+                            .cleanExpiredEntries(premiumTtlMinutes);
+                    if (cleaned > 0) {
+                        logger.info("Cleaned {} expired premium UUID cache entries from database", cleaned);
+                    }
+                } catch (Exception e) {
+                    logger.error("Error during premium UUID DB cleanup", e);
+                }
+            }, 1, 1, TimeUnit.HOURS);
+        }
         
         logger.debug("✅ Cache initialized in {} ms (TTL: {} min, Max size: {}, Premium cache: 10000)", 
                 System.currentTimeMillis() - startTime, 
@@ -530,6 +552,11 @@ public class VeloAuth {
             if (premiumCacheCleanupScheduler != null) {
                 premiumCacheCleanupScheduler.shutdown();
                 logger.debug("Premium cache cleanup scheduler zamknięty");
+            }
+
+            if (premiumDbCleanupScheduler != null) {
+                premiumDbCleanupScheduler.shutdown();
+                logger.debug("Premium DB cleanup scheduler zamknięty");
             }
 
             // 5. Zamknij DB connection jako ostatni

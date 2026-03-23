@@ -84,7 +84,7 @@ final class DefaultConfigGenerator {
                     # Enable SSL connection to PostgreSQL
                     ssl-enabled: false
                     # SSL mode: disable, allow, prefer, require, verify-ca, verify-full
-                    ssl-mode: "prefer"
+                    ssl-mode: "require"
                     # Path to SSL certificate file (optional)
                     ssl-cert: ""
                     # Path to SSL key file (optional)
@@ -128,7 +128,7 @@ final class DefaultConfigGenerator {
                   bruteforce-max-attempts: 5 # Attempts before temporary block
                   bruteforce-timeout-minutes: 5 # Block duration in minutes
                   ip-limit-registrations: 3 # Account registrations per IP
-                  min-password-length: 4 # Inclusive minimum password length
+                  min-password-length: 8 # Inclusive minimum password length
                   max-password-length: 72 # Inclusive maximum password length""";
 
     private static final String PREMIUM_SECTION = """

@@ -216,7 +216,7 @@ public final class CachedAuthUser {
         long ttlMillis = ttlMinutes * 60L * 1000L;
         long currentTime = System.currentTimeMillis();
 
-        return (currentTime - cacheTime) < ttlMillis;
+        return (currentTime - lastAccessTime.get()) < ttlMillis;
     }
 
     /**

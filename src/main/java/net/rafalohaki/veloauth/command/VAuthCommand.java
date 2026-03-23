@@ -54,6 +54,8 @@ class VAuthCommand implements SimpleCommand {
         boolean success = ctx.plugin().reloadConfig();
         if (success) {
             source.sendMessage(ctx.sm().adminReloadSuccess());
+            source.sendMessage(ValidationUtils.createWarningComponent(
+                    "⚠ Changes to database, auth-server, premium-resolver, and floodgate settings require a full server restart."));
         } else {
             source.sendMessage(ctx.sm().adminReloadFailed());
         }

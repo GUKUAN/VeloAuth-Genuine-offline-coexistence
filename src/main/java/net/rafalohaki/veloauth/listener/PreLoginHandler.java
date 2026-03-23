@@ -80,7 +80,7 @@ public class PreLoginHandler {
         // Minecraft usernames: letters, numbers, underscore
         for (int i = 0; i < validatedUsername.length(); i++) {
             char c = validatedUsername.charAt(i);
-            if (!Character.isLetterOrDigit(c) && c != '_') {
+            if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_')) {
                 return false;
             }
         }
@@ -109,7 +109,7 @@ public class PreLoginHandler {
      */
     public boolean isBruteForceBlocked(InetAddress address) {
         if (address == null) {
-            return false;
+            return true; // fail-secure: block when address is unknown
         }
         return authCache.isBlocked(address);
     }
@@ -254,8 +254,15 @@ public class PreLoginHandler {
                     .thenAccept(result -> {
                         if (result != null && result.isDatabaseError()) {
                             logger.error(SECURITY_MARKER,
-                                    "[NICKNAME CONFLICT] Database error saving conflict state for {}: {}",
-                                    username, result.getErrorMessage());
+                                    "[NICKNAME CONFLICT] Failed to save conflict state for {} — retrying once",
+                                    username);
+                            databaseManager.savePlayer(existingPlayer)
+                                    .thenAccept(retryResult -> {
+                                        if (retryResult != null && retryResult.isDatabaseError()) {
+                                            logger.error(SECURITY_MARKER,
+                                                    "[NICKNAME CONFLICT] Retry also failed for {}", username);
+                                        }
+                                    });
                         }
                     });
             logger.info("[NICKNAME CONFLICT] Premium player {} detected conflict with offline account", username);

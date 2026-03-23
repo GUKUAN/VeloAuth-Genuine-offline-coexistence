@@ -205,7 +205,13 @@ public class DatabaseMigrationService {
         try {
             executeUpdate(connectionSource, sql);
         } catch (SQLException e) {
-            logger.warn(DB_MARKER, "Index creation failed (may already exist): {}", e.getMessage());
+            String msg = e.getMessage();
+            if (msg != null && (msg.toLowerCase(java.util.Locale.ROOT).contains("already exists")
+                    || msg.toLowerCase(java.util.Locale.ROOT).contains("duplicate"))) {
+                logger.debug(DB_MARKER, "Index already exists: {}", msg);
+            } else {
+                logger.error(DB_MARKER, "Index creation FAILED (not a duplicate): {}", sql, e);
+            }
         }
     }
 

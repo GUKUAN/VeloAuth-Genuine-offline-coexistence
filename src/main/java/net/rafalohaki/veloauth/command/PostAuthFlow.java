@@ -11,6 +11,7 @@ import org.slf4j.MarkerFactory;
 
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 /**
  * Shared post-authentication flow used by both LoginCommand and RegisterCommand.
@@ -54,6 +55,15 @@ final class PostAuthFlow {
                         return null;
                     });
             ctx.logger().info("[PREMIUM] Persisted PREMIUMUUID for {} in AUTH table", authContext.username());
+
+            // Sync PREMIUM_UUIDS table to keep isPremium() consistent with isPlayerPremiumRuntime()
+            ctx.databaseManager().savePremiumUuid(authContext.username(), premiumUuid)
+                    .exceptionally(throwable -> {
+                        ctx.logger().warn(AUTH_MARKER,
+                                "Failed to sync PREMIUM_UUIDS table for {}: {}",
+                                authContext.username(), throwable.getMessage());
+                        return null;
+                    });
         }
 
         CachedAuthUser cachedUser = CachedAuthUser.fromRegisteredPlayer(player, isPremium, premiumUuid);

@@ -45,8 +45,9 @@ public class EarlyLoginBlocker {
                         .exceptionally(throwable -> {
                             logger.warn("STARTUP QUEUE: Timed out or init failed for {} - denying connection",
                                     username);
+                            // i18n not available here — Messages is initialized after EarlyLoginBlocker registers
                             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
-                                    Component.text("VeloAuth is starting. Please try connecting again in a moment.",
+                                    Component.text("VeloAuth ⏳",
                                             NamedTextColor.RED)));
                             return null;
                         })

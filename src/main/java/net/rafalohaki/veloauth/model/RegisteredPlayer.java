@@ -427,8 +427,8 @@ public class RegisteredPlayer {
         return "RegisteredPlayer{" +
                 "nickname='" + nickname + '\'' +
                 ", lowercaseNickname='" + lowercaseNickname + '\'' +
-                ", ip='" + ip + '\'' +
-                ", loginIp='" + loginIp + '\'' +
+                ", ip='[REDACTED]'" +
+                ", loginIp='[REDACTED]'" +
                 ", uuid='" + uuid + '\'' +
                 ", regDate=" + regDate +
                 ", loginDate=" + loginDate +

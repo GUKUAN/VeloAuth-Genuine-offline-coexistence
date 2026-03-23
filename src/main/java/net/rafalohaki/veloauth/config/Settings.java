@@ -65,7 +65,7 @@ public class Settings {
     private int bruteForceMaxAttempts = 5;
     private int bruteForceTimeoutMinutes = 5;
     private int ipLimitRegistrations = 3;
-    private int minPasswordLength = 4;
+    private int minPasswordLength = 8;
     private int maxPasswordLength = 72;
     // Debug settings
     private boolean debugEnabled = false;

@@ -80,6 +80,8 @@ public final class SettingsValidator {
     }
 
     static void validatePremium(Settings settings) {
+        warnUnimplementedPremiumOptions(settings);
+
         if (!settings.isPremiumCheckEnabled()) {
             return;
         }
@@ -92,6 +94,15 @@ public final class SettingsValidator {
         validatePremiumResolverSources(resolver);
         validatePremiumResolverTimeout(resolver);
         validatePremiumResolverTtl(resolver);
+    }
+
+    private static void warnUnimplementedPremiumOptions(Settings settings) {
+        if (settings.isOnlineModeNeedAuth()) {
+            logger.warn("Config 'premium.online-mode-need-auth' is set but NOT YET IMPLEMENTED. Premium players are not required to authenticate.");
+        }
+        if (settings.getAuthServerTimeoutSeconds() != 300) {
+            logger.warn("Config 'auth-server.timeout-seconds' is set to {} but NOT YET IMPLEMENTED. No kick mechanism exists for unauthenticated players.", settings.getAuthServerTimeoutSeconds());
+        }
     }
 
     private static final int MIN_BCRYPT_COST = 10;
