@@ -19,6 +19,7 @@ import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.connection.ConnectionManager;
 import net.rafalohaki.veloauth.database.DatabaseManager;
 import net.rafalohaki.veloauth.database.DatabaseManager.DbResult;
+import net.rafalohaki.veloauth.model.CachedAuthUser;
 import net.rafalohaki.veloauth.model.RegisteredPlayer;
 import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.util.FloodgateDetector;
@@ -140,6 +141,36 @@ public class AuthListener {
                 && FloodgateDetector.isBedrockPlayer(player.getUniqueId());
     }
 
+    /**
+     * Refreshes premium player authorization in cache and session.
+     * Called when a premium (online mode) player's cache entry has expired but they are still
+     * authenticated via Mojang. This prevents premium players from being asked to re-authenticate
+     * when switching servers or after a backend server stops.
+     *
+     * @param player   The premium player
+     * @param playerIp Player's IP address
+     */
+    private void refreshPremiumAuthorization(Player player, String playerIp) {
+        UUID playerUuid = player.getUniqueId();
+        UUID premiumUuid = Optional.ofNullable(authCache.getPremiumStatus(player.getUsername()))
+                .map(AuthCache.PremiumCacheEntry::getPremiumUuid)
+                .orElse(playerUuid);
+
+        CachedAuthUser cachedUser = new CachedAuthUser(
+                playerUuid,
+                player.getUsername(),
+                playerIp,
+                System.currentTimeMillis(),
+                true,
+                premiumUuid);
+
+        authCache.addAuthorizedPlayer(playerUuid, cachedUser);
+        authCache.startSession(playerUuid, player.getUsername(), playerIp);
+
+        if (logger.isDebugEnabled()) {
+            logger.debug("Refreshed premium authorization for player {}", player.getUsername());
+        }
+    }
 
 
     /**
@@ -539,10 +570,17 @@ public class AuthListener {
 
     private boolean handleAuthServerConnection(ServerPreConnectEvent event, Player player, String targetServerName) {
         if (targetServerName.equals(settings.getAuthServerName())) {
-            // DODATKOWA WERYFIKACJA - sprawdź czy gracz nie jest już autoryzowany
-            // Jeśli jest autoryzowany, nie powinien iść na auth server
             String playerIp = PlayerAddressUtils.getPlayerIp(player);
             boolean isAuthorized = authCache.isPlayerAuthorized(player.getUniqueId(), playerIp);
+
+            // Premium players should never sit on auth server - refresh auth and redirect to backend
+            if (!isAuthorized && player.isOnlineMode()) {
+                logger.debug("Premium player {} cache expired - refreshing authorization and redirecting to backend",
+                        player.getUsername());
+                refreshPremiumAuthorization(player, playerIp);
+                isAuthorized = true;
+            }
+
             if (isAuthorized) {
                 // AUTORYZOWANY GRACZ NA AUTH SERVER - przekieruj na backend
                 logger.debug("Authorized player {} tried to go to auth server - redirecting to backend",
@@ -560,6 +598,20 @@ public class AuthListener {
     private CompletableFuture<Void> verifyBackendConnectionAsync(ServerPreConnectEvent event, Player player, String targetServerName) {
         if (isBedrockPlayer(player)) {
             logger.info("[FLOODGATE] Bedrock player {} -> {} (skipping auth server)",
+                    player.getUsername(), targetServerName);
+            return CompletableFuture.completedFuture(null);
+        }
+
+        // Premium players are already authenticated by Mojang via Velocity online mode.
+        // If their cache expired, refresh it instead of blocking the server switch.
+        if (player.isOnlineMode()) {
+            String playerIp = PlayerAddressUtils.getPlayerIp(player);
+            if (!authCache.isPlayerAuthorized(player.getUniqueId(), playerIp)) {
+                logger.debug("Premium player {} cache expired during server switch - refreshing authorization",
+                        player.getUsername());
+                refreshPremiumAuthorization(player, playerIp);
+            }
+            logger.debug("Premium player {} heading to {} (online mode verified)",
                     player.getUsername(), targetServerName);
             return CompletableFuture.completedFuture(null);
         }
@@ -649,6 +701,16 @@ public class AuthListener {
 
         String playerIp = PlayerAddressUtils.getPlayerIp(player);
         if (authCache.isPlayerAuthorized(player.getUniqueId(), playerIp)) {
+            triggerAutoTransfer(player);
+            return;
+        }
+
+        // Premium players should be auto-transferred even if cache expired.
+        // They are already authenticated by Mojang via Velocity online mode.
+        if (player.isOnlineMode()) {
+            logger.debug("Premium player {} on auth server with expired cache - refreshing and auto-transferring",
+                    player.getUsername());
+            refreshPremiumAuthorization(player, playerIp);
             triggerAutoTransfer(player);
             return;
         }
