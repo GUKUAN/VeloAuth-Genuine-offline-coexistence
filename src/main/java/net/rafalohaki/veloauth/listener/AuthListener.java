@@ -154,7 +154,14 @@ public class AuthListener {
         UUID playerUuid = player.getUniqueId();
         UUID premiumUuid = Optional.ofNullable(authCache.getPremiumStatus(player.getUsername()))
                 .map(AuthCache.PremiumCacheEntry::getPremiumUuid)
-                .orElse(playerUuid);
+                .orElse(null);
+
+        if (premiumUuid == null) {
+            premiumUuid = playerUuid;
+            if (logger.isDebugEnabled()) {
+                logger.debug("Premium cache miss for {} - using player UUID as premium UUID", player.getUsername());
+            }
+        }
 
         CachedAuthUser cachedUser = new CachedAuthUser(
                 playerUuid,
