@@ -264,7 +264,7 @@ final class SettingsLoader {
 
             state.databaseStorageType = dbType.getName();
             String remaining = url.substring(url.indexOf("://") + 3);
-            parseConnectionCredentials(state, remaining);
+            parseConnectionCredentials(state, remaining, logger);
             logger.info("Parsed connection URL: {}@{}:{}/{}",
                     state.databaseUser, state.databaseHostname, state.databasePort, state.databaseName);
         } catch (StringIndexOutOfBoundsException e) {
@@ -274,14 +274,14 @@ final class SettingsLoader {
         }
     }
 
-    private static void parseConnectionCredentials(LoadedState state, String remaining) {
+    private static void parseConnectionCredentials(LoadedState state, String remaining, Logger logger) {
         String[] parts = remaining.split("@");
         if (parts.length != 2) {
             return;
         }
 
         parseAuthPart(state, parts[0]);
-        parseHostPart(state, parts[1]);
+        parseHostPart(state, parts[1], logger);
     }
 
     private static void parseAuthPart(LoadedState state, String authPart) {
@@ -294,11 +294,21 @@ final class SettingsLoader {
         }
     }
 
-    private static void parseHostPart(LoadedState state, String hostPart) {
-        String[] hostSplit = hostPart.split("/");
+    private static void parseHostPart(LoadedState state, String hostPart, Logger logger) {
+        String[] hostSplit = hostPart.split("/", 2);
         String hostAndPort = hostSplit[0];
-        if (hostSplit.length >= 2) {
-            state.databaseName = hostSplit[1];
+        if (hostSplit.length == 2) {
+            String databaseAndQuery = hostSplit[1];
+            int querySeparator = databaseAndQuery.indexOf('?');
+            String databaseName = querySeparator >= 0
+                    ? databaseAndQuery.substring(0, querySeparator)
+                    : databaseAndQuery;
+            if (!databaseName.isBlank()) {
+                state.databaseName = databaseName;
+            }
+            if (querySeparator >= 0 && querySeparator + 1 < databaseAndQuery.length()) {
+                logger.warn("Ignoring query parameters in database.connection-url; use database.connection-parameters or database.postgresql.* settings instead");
+            }
         }
 
         String[] hpSplit = hostAndPort.split(":");

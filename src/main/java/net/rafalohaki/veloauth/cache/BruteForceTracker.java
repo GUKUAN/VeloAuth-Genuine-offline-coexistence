@@ -112,20 +112,39 @@ class BruteForceTracker {
      * Resetuje próby logowania dla IP.
      */
     void resetLoginAttempts(InetAddress address) {
-        if (address != null) {
-            BruteForceEntry removed = bruteForceAttempts.remove(address);
-            if (removed != null && logger.isDebugEnabled()) {
-                logger.debug(messages.get("cache.debug.reset.attempts"), address.getHostAddress());
-            }
+        if (address == null) {
+            return;
+        }
+
+        BruteForceEntry removed;
+        lock.lock();
+        try {
+            removed = bruteForceAttempts.remove(address);
+        } finally {
+            lock.unlock();
+        }
+
+        if (removed != null && logger.isDebugEnabled()) {
+            logger.debug(messages.get("cache.debug.reset.attempts"), address.getHostAddress());
         }
     }
 
     int size() {
-        return bruteForceAttempts.size();
+        lock.lock();
+        try {
+            return bruteForceAttempts.size();
+        } finally {
+            lock.unlock();
+        }
     }
 
     void clear() {
-        bruteForceAttempts.clear();
+        lock.lock();
+        try {
+            bruteForceAttempts.clear();
+        } finally {
+            lock.unlock();
+        }
     }
 
     /**
@@ -134,16 +153,21 @@ class BruteForceTracker {
      * @return number of removed entries
      */
     int cleanupExpired() {
-        int removed = 0;
-        var iterator = bruteForceAttempts.entrySet().iterator();
-        while (iterator.hasNext()) {
-            var entry = iterator.next();
-            if (entry.getValue().isExpired(bruteForceTimeoutMinutes)) {
-                iterator.remove();
-                removed++;
+        lock.lock();
+        try {
+            int removed = 0;
+            var iterator = bruteForceAttempts.entrySet().iterator();
+            while (iterator.hasNext()) {
+                var entry = iterator.next();
+                if (entry.getValue().isExpired(bruteForceTimeoutMinutes)) {
+                    iterator.remove();
+                    removed++;
+                }
             }
+            return removed;
+        } finally {
+            lock.unlock();
         }
-        return removed;
     }
 
     /**

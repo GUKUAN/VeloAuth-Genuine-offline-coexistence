@@ -11,6 +11,7 @@ import org.slf4j.Marker;
 import org.slf4j.MarkerFactory;
 
 import java.sql.SQLException;
+import java.util.Locale;
 
 /**
  * Handles database schema creation, migration, and index management.
@@ -86,7 +87,7 @@ public class DatabaseMigrationService {
         java.sql.Connection connection = dbConnection.getUnderlyingConnection();
         ColumnMigrationResult migrationResult = checkExistingColumns(connection);
         DatabaseType dbType = DatabaseType.fromName(config.getStorageType());
-        String quote = dbType == DatabaseType.POSTGRESQL ? "\"" : "`";
+        String quote = identifierQuote(dbType);
 
         addMissingColumns(connection, migrationResult, quote);
         logMigrationComplete(migrationResult);
@@ -131,7 +132,10 @@ public class DatabaseMigrationService {
                 logger.info(DB_MARKER, logMessage);
             }
         } catch (SQLException e) {
-            if (e.getErrorCode() == 42121 || e.getMessage().toLowerCase().contains("duplicate column")) {
+            String normalizedMessage = normalizeSqlMessage(e);
+            if (e.getErrorCode() == 42121
+                    || normalizedMessage.contains("duplicate column")
+                    || normalizedMessage.contains("already exists")) {
                 if (logger.isDebugEnabled()) {
                     logger.debug(DB_MARKER, "Column {} already exists in table {} - skipping (expected behavior)",
                               columnName, AUTH_TABLE);
@@ -143,7 +147,8 @@ public class DatabaseMigrationService {
     }
 
     private void logMigrationComplete(ColumnMigrationResult result) {
-        if (logger.isDebugEnabled() && (!result.hasPremiumUuid || !result.hasTotpToken || !result.hasIssuedTime)) {
+        if (logger.isDebugEnabled() && (!result.hasPremiumUuid || !result.hasTotpToken || !result.hasIssuedTime
+                || !result.hasConflictMode || !result.hasConflictTimestamp || !result.hasOriginalNickname)) {
             logger.debug(DB_MARKER, "AUTH schema migration for limboauth completed");
         }
     }
@@ -179,54 +184,88 @@ public class DatabaseMigrationService {
 
     private void createIndexesIfNotExists(ConnectionSource connectionSource) {
         DatabaseType dbType = DatabaseType.fromName(config.getStorageType());
+        String quote = identifierQuote(dbType);
+        createIndexIfMissing(connectionSource, AUTH_TABLE, "idx_auth_ip",
+                buildCreateIndexSql(quote, "idx_auth_ip", AUTH_TABLE, "IP"));
+        createIndexIfMissing(connectionSource, AUTH_TABLE, "idx_auth_uuid",
+                buildCreateIndexSql(quote, "idx_auth_uuid", AUTH_TABLE, "UUID"));
+        createIndexIfMissing(connectionSource, AUTH_TABLE, "idx_auth_logindate",
+                buildCreateIndexSql(quote, "idx_auth_logindate", AUTH_TABLE, "LOGINDATE"));
+        createIndexIfMissing(connectionSource, AUTH_TABLE, "idx_auth_regdate",
+                buildCreateIndexSql(quote, "idx_auth_regdate", AUTH_TABLE, "REGDATE"));
+        createIndexIfMissing(connectionSource, "PREMIUM_UUIDS", "idx_premium_uuids_nickname",
+                buildCreateIndexSql(quote, "idx_premium_uuids_nickname", "PREMIUM_UUIDS", "NICKNAME"));
+        createIndexIfMissing(connectionSource, "PREMIUM_UUIDS", "idx_premium_uuids_last_seen",
+                buildCreateIndexSql(quote, "idx_premium_uuids_last_seen", "PREMIUM_UUIDS", "LAST_SEEN"));
+    }
 
-        if (dbType == DatabaseType.POSTGRESQL) {
-            createPostgreSqlIndexes(connectionSource);
-        } else if (dbType == DatabaseType.MYSQL) {
-            createMySqlIndexes(connectionSource);
+    private String buildCreateIndexSql(String quote, String indexName, String tableName, String columnName) {
+        return "CREATE INDEX " + indexName + " ON " + quoteIdentifier(quote, tableName)
+                + " (" + quoteIdentifier(quote, columnName) + ")";
+    }
+
+    private String quoteIdentifier(String quote, String identifier) {
+        return quote + identifier + quote;
+    }
+
+    private void createIndexIfMissing(ConnectionSource connectionSource, String tableName, String indexName, String sql) {
+        if (connectionSource == null) {
+            return;
         }
-    }
-
-    private void createPostgreSqlIndexes(ConnectionSource connectionSource) {
-        createIndexSafely(connectionSource, "CREATE INDEX IF NOT EXISTS idx_auth_ip ON \"AUTH\" (\"IP\")");
-        createIndexSafely(connectionSource, "CREATE INDEX IF NOT EXISTS idx_auth_uuid ON \"AUTH\" (\"UUID\")");
-        createIndexSafely(connectionSource, "CREATE INDEX IF NOT EXISTS idx_auth_logindate ON \"AUTH\" (\"LOGINDATE\")");
-        createIndexSafely(connectionSource, "CREATE INDEX IF NOT EXISTS idx_auth_regdate ON \"AUTH\" (\"REGDATE\")");
-    }
-
-    private void createMySqlIndexes(ConnectionSource connectionSource) {
-        createIndexSafely(connectionSource, "CREATE INDEX IF NOT EXISTS idx_auth_ip ON `AUTH` (`IP`)");
-        createIndexSafely(connectionSource, "CREATE INDEX IF NOT EXISTS idx_auth_uuid ON `AUTH` (`UUID`)");
-        createIndexSafely(connectionSource, "CREATE INDEX IF NOT EXISTS idx_auth_logindate ON `AUTH` (`LOGINDATE`)");
-        createIndexSafely(connectionSource, "CREATE INDEX IF NOT EXISTS idx_auth_regdate ON `AUTH` (`REGDATE`)");
-    }
-
-    private void createIndexSafely(ConnectionSource connectionSource, String sql) {
+        DatabaseConnection connection = null;
         try {
-            executeUpdate(connectionSource, sql);
+            connection = connectionSource.getReadWriteConnection(null);
+            java.sql.Connection underlyingConnection = connection.getUnderlyingConnection();
+            if (indexExists(underlyingConnection, tableName, indexName)) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug(DB_MARKER, "Index {} already exists on table {}", indexName, tableName);
+                }
+                return;
+            }
+            connection.executeStatement(sql, DatabaseConnection.DEFAULT_RESULT_FLAGS);
         } catch (SQLException e) {
-            String msg = e.getMessage();
-            if (msg != null && (msg.toLowerCase(java.util.Locale.ROOT).contains("already exists")
-                    || msg.toLowerCase(java.util.Locale.ROOT).contains("duplicate"))) {
-                logger.debug(DB_MARKER, "Index already exists: {}", msg);
+            String normalizedMessage = normalizeSqlMessage(e);
+            if (normalizedMessage.contains("already exists") || normalizedMessage.contains("duplicate")) {
+                logger.debug(DB_MARKER, "Index already exists: {}", e.getMessage());
             } else {
                 logger.error(DB_MARKER, "Index creation FAILED (not a duplicate): {}", sql, e);
             }
-        }
-    }
-
-    private void executeUpdate(ConnectionSource connectionSource, String sql) throws SQLException {
-        if (connectionSource != null) {
-            DatabaseConnection connection = null;
-            try {
-                connection = connectionSource.getReadWriteConnection(null);
-                connection.executeStatement(sql, DatabaseConnection.DEFAULT_RESULT_FLAGS);
-            } finally {
-                if (connection != null) {
+        } finally {
+            if (connection != null) {
+                try {
                     connectionSource.releaseConnection(connection);
+                } catch (SQLException e) {
+                    logger.error(DB_MARKER, "Failed to release connection after index creation", e);
                 }
             }
         }
+    }
+
+    private boolean indexExists(java.sql.Connection connection, String tableName, String indexName) throws SQLException {
+        return indexExists(connection.getMetaData(), tableName, indexName)
+                || indexExists(connection.getMetaData(), tableName.toUpperCase(Locale.ROOT), indexName)
+                || indexExists(connection.getMetaData(), tableName.toLowerCase(Locale.ROOT), indexName);
+    }
+
+    private boolean indexExists(java.sql.DatabaseMetaData metaData, String tableName, String indexName) throws SQLException {
+        try (java.sql.ResultSet indexes = metaData.getIndexInfo(null, null, tableName, false, false)) {
+            while (indexes.next()) {
+                String existingIndex = indexes.getString("INDEX_NAME");
+                if (existingIndex != null && existingIndex.equalsIgnoreCase(indexName)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private String identifierQuote(DatabaseType dbType) {
+        return dbType == DatabaseType.POSTGRESQL ? "\"" : "`";
+    }
+
+    private String normalizeSqlMessage(SQLException e) {
+        String message = e.getMessage();
+        return message == null ? "" : message.toLowerCase(Locale.ROOT);
     }
 
     private record ColumnMigrationResult(boolean hasPremiumUuid, boolean hasTotpToken, boolean hasIssuedTime,

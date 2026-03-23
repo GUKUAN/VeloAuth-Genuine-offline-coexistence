@@ -45,6 +45,9 @@ public class ConnectionManager {
     
     /** One-shot timeout retry flag per player to avoid repeated scheduling */
     private final Map<UUID, Boolean> timeoutRetryScheduled = new ConcurrentHashMap<>();
+
+    /** Timeout retry tasks per player - allows cancellation on disconnect and manual transfers */
+    private final Map<UUID, ScheduledTask> timeoutRetryTasks = new ConcurrentHashMap<>();
     
     /** Pending transfer tasks per player - allows cancellation on disconnect to prevent race conditions */
     private final Map<UUID, ScheduledTask> pendingTransfers = new ConcurrentHashMap<>();
@@ -99,6 +102,7 @@ public class ConnectionManager {
 
     public CompletableFuture<Boolean> transferToAuthServerAsync(Player player) {
         try {
+            resetTransferState(player.getUniqueId(), false);
             RegisteredServer targetServer = validateAndGetAuthServer(player);
             if (targetServer == null) {
                 return CompletableFuture.completedFuture(false);
@@ -242,6 +246,7 @@ public class ConnectionManager {
      */
     public boolean transferToBackend(Player player) {
         try {
+            resetTransferState(player.getUniqueId(), false);
             // 1. Sprawdź forced host target (zapamiętany z pierwszego połączenia)
             Optional<RegisteredServer> backendServer = resolveForcedHostTarget(player);
 
@@ -347,8 +352,8 @@ public class ConnectionManager {
     }
 
     private boolean handleSuccessfulTransfer(Player player, String serverName) {
+        resetTransferState(player.getUniqueId(), false);
         retryAttempts.remove(player.getUniqueId());
-        timeoutRetryScheduled.remove(player.getUniqueId());
         if (logger.isDebugEnabled()) {
             logger.debug(messages.get("player.transfer.backend.success", player.getUsername(), serverName));
         }
@@ -380,6 +385,7 @@ public class ConnectionManager {
             return false;
         }
 
+        resetTransferState(player.getUniqueId(), false);
         retryAttempts.put(player.getUniqueId(), attempts + 1);
         if (logger.isInfoEnabled()) {
             logger.info("Attempting fallback for player {} (attempt {}/{}): send to auth server then retry backend {}",
@@ -423,9 +429,18 @@ public class ConnectionManager {
     }
 
     private void scheduleBackendRetryAfterLimbo(Player player, RegisteredServer targetServer, String serverName) {
-        plugin.getServer().getScheduler().buildTask(plugin, () ->
-                executeBackendRetryAfterLimbo(player, targetServer, serverName)
-        ).delay(300, TimeUnit.MILLISECONDS).schedule();
+        UUID playerUuid = player.getUniqueId();
+        cancelPendingTransfer(playerUuid);
+
+        ScheduledTask task = plugin.getServer().getScheduler().buildTask(plugin, () -> {
+            pendingTransfers.remove(playerUuid);
+            if (!player.isActive() || !isPlayerOnAuthServer(player)) {
+                return;
+            }
+            executeBackendRetryAfterLimbo(player, targetServer, serverName);
+        }).delay(300, TimeUnit.MILLISECONDS).schedule();
+
+        pendingTransfers.put(playerUuid, task);
     }
 
     /**
@@ -450,10 +465,12 @@ public class ConnectionManager {
             return;
         }
 
+        cancelBackendWaitTask(playerUuid);
+
         ScheduledTask task = plugin.getServer().getScheduler().buildTask(plugin, () -> {
             backendWaitTasks.remove(playerUuid);
 
-            if (!player.isActive()) {
+            if (!player.isActive() || !isPlayerOnAuthServer(player)) {
                 return;
             }
 
@@ -553,13 +570,23 @@ public class ConnectionManager {
     }
 
     private void scheduleTimeoutRetry(Player player, RegisteredServer targetServer, String serverName) {
-        plugin.getServer().getScheduler().buildTask(plugin, () ->
-            executeTimeoutRetry(player, targetServer, serverName)
-        ).delay(400, TimeUnit.MILLISECONDS).schedule();
+        UUID playerUuid = player.getUniqueId();
+        cancelTimeoutRetryTask(playerUuid);
+
+        ScheduledTask task = plugin.getServer().getScheduler().buildTask(plugin, () -> {
+            timeoutRetryTasks.remove(playerUuid);
+            executeTimeoutRetry(player, targetServer, serverName);
+        }).delay(400, TimeUnit.MILLISECONDS).schedule();
+
+        timeoutRetryTasks.put(playerUuid, task);
     }
 
     private void executeTimeoutRetry(Player player, RegisteredServer targetServer, String serverName) {
         try {
+            if (!player.isActive() || !isPlayerOnAuthServer(player)) {
+                timeoutRetryScheduled.remove(player.getUniqueId());
+                return;
+            }
             player.createConnectionRequest(targetServer)
                     .connect()
                     .orTimeout(settings.getConnectionTimeoutSeconds(), TimeUnit.SECONDS)
@@ -571,7 +598,7 @@ public class ConnectionManager {
     }
 
     private void handleTimeoutRetryResult(Player player, String serverName,
-                                         com.velocitypowered.api.proxy.ConnectionRequestBuilder.Result result, Throwable ex) {
+                                          com.velocitypowered.api.proxy.ConnectionRequestBuilder.Result result, Throwable ex) {
         timeoutRetryScheduled.remove(player.getUniqueId());
 
         if (ex != null) {
@@ -581,6 +608,7 @@ public class ConnectionManager {
         }
 
         if (result != null && result.isSuccessful()) {
+            resetTransferState(player.getUniqueId(), false);
             retryAttempts.remove(player.getUniqueId());
             if (logger.isDebugEnabled()) {
                 logger.debug("Retry after timeout succeeded for {} -> {}", player.getUsername(), serverName);
@@ -738,13 +766,13 @@ public class ConnectionManager {
      */
     public void forceReauth(Player player) {
         try {
+            resetTransferState(player.getUniqueId(), false);
+            retryAttempts.remove(player.getUniqueId());
+
             // Usuń z cache
             authCache.removeAuthorizedPlayer(player.getUniqueId());
             authCache.endSession(player.getUniqueId());
             
-            // Clear timeout retry flag
-            timeoutRetryScheduled.remove(player.getUniqueId());
-
             // Transfer na auth server bez blokowania wątku wywołującego.
             transferToAuthServerAsync(player);
 
@@ -853,6 +881,27 @@ public class ConnectionManager {
             }
         }
     }
+
+    private void cancelTimeoutRetryTask(UUID playerUuid) {
+        ScheduledTask task = timeoutRetryTasks.remove(playerUuid);
+        if (task != null) {
+            task.cancel();
+            if (logger.isDebugEnabled()) {
+                logger.debug("Anulowano timeout retry task dla gracza UUID: {}", playerUuid);
+            }
+        }
+    }
+
+    private void resetTransferState(UUID playerUuid, boolean clearForcedHostTarget) {
+        timeoutRetryScheduled.remove(playerUuid);
+        cancelPendingTransfer(playerUuid);
+        cancelBackendWaitTask(playerUuid);
+        cancelTimeoutRetryTask(playerUuid);
+
+        if (clearForcedHostTarget) {
+            forcedHostTargets.remove(playerUuid);
+        }
+    }
     
     /**
      * Czyści licznik prób i anuluje pending transfers dla gracza (np. przy rozłączeniu).
@@ -862,10 +911,7 @@ public class ConnectionManager {
      */
     public void clearRetryAttempts(UUID playerUuid) {
         retryAttempts.remove(playerUuid);
-        timeoutRetryScheduled.remove(playerUuid);
-        forcedHostTargets.remove(playerUuid);
-        cancelPendingTransfer(playerUuid);
-        cancelBackendWaitTask(playerUuid);
+        resetTransferState(playerUuid, true);
     }
     
     /**
@@ -880,6 +926,10 @@ public class ConnectionManager {
         // Anuluj wszystkie backend wait tasks
         backendWaitTasks.values().forEach(ScheduledTask::cancel);
         backendWaitTasks.clear();
+
+        // Anuluj wszystkie timeout retry tasks
+        timeoutRetryTasks.values().forEach(ScheduledTask::cancel);
+        timeoutRetryTasks.clear();
         
         // Wyczyść wszystkie mapy stanu
         retryAttempts.clear();

@@ -2,6 +2,7 @@ package net.rafalohaki.veloauth.command;
 
 import com.velocitypowered.api.proxy.Player;
 import net.rafalohaki.veloauth.config.Settings;
+import net.rafalohaki.veloauth.i18n.Messages;
 import net.rafalohaki.veloauth.util.PlayerAddressUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,10 +32,13 @@ class ValidationUtilsTest {
     private Player mockPlayer;
 
     private Settings mockSettings;
+    private Messages messages;
 
     @BeforeEach
     void setUp() {
         mockSettings = new TestValidationSettings(java.nio.file.Path.of(".test-validation"), 6, 32);
+        messages = new Messages();
+        messages.setLanguage("en");
     }
 
     @Test
@@ -43,7 +47,7 @@ class ValidationUtilsTest {
         // Using TestValidationSettings with min=6, max=32
         String validPassword = "testPassword123"; // NOSONAR - Test password for validation
         
-        ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(validPassword, mockSettings);
+        ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(validPassword, mockSettings, messages);
 
         assertTrue(result.valid());
         assertNull(result.getErrorMessage());
@@ -51,18 +55,18 @@ class ValidationUtilsTest {
 
     @Test
     void testValidatePassword_EmptyPassword_ReturnsError() {
-        ValidationUtils.ValidationResult result = ValidationUtils.validatePassword("", mockSettings);
+        ValidationUtils.ValidationResult result = ValidationUtils.validatePassword("", mockSettings, messages);
 
         assertFalse(result.valid());
-        assertEquals("validation.password.empty", result.getErrorMessage());
+        assertEquals(messages.get("validation.password.empty"), result.getErrorMessage());
     }
 
     @Test
     void testValidatePassword_NullPassword_ReturnsError() {
-        ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(null, mockSettings);
+        ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(null, mockSettings, messages);
 
         assertFalse(result.valid());
-        assertEquals("validation.password.empty", result.getErrorMessage());
+        assertEquals(messages.get("validation.password.empty"), result.getErrorMessage());
     }
 
     @Test
@@ -71,10 +75,10 @@ class ValidationUtilsTest {
         // Using TestValidationSettings with min=6
         String shortPassword = "test"; // NOSONAR - Test password
 
-        ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(shortPassword, mockSettings);
+        ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(shortPassword, mockSettings, messages);
 
         assertFalse(result.valid());
-        assertEquals("validation.password.too_short:6", result.getErrorMessage());
+        assertEquals(messages.get("validation.password.too_short", 6), result.getErrorMessage());
     }
 
     @Test
@@ -83,10 +87,22 @@ class ValidationUtilsTest {
 
         String longPassword = "a".repeat(33);
 
-        ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(longPassword, mockSettings);
+        ValidationUtils.ValidationResult result = ValidationUtils.validatePassword(longPassword, mockSettings, messages);
 
         assertFalse(result.valid());
-        assertEquals("validation.password.too_long:32", result.getErrorMessage());
+        assertEquals(messages.get("validation.password.too_long", 32), result.getErrorMessage());
+    }
+
+    @Test
+    void testValidatePassword_Utf8TooLong_ReturnsLocalizedError() {
+        String utf8HeavyPassword = "你".repeat(25);
+
+        ValidationUtils.ValidationResult result =
+                ValidationUtils.validatePassword(utf8HeavyPassword, mockSettings, messages);
+
+        assertFalse(result.valid());
+        assertEquals(messages.get("validation.password.utf8_too_long", 75), result.getErrorMessage());
+        assertFalse("validation.password.utf8_too_long".equals(result.getErrorMessage()));
     }
 
     @Test
@@ -95,7 +111,8 @@ class ValidationUtilsTest {
         String password = "test123"; // NOSONAR - Test data
         String confirmPassword = "test123"; // NOSONAR - Test data
 
-        ValidationUtils.ValidationResult result = ValidationUtils.validatePasswordMatch(password, confirmPassword);
+        ValidationUtils.ValidationResult result =
+                ValidationUtils.validatePasswordMatch(password, confirmPassword, messages);
 
         assertTrue(result.valid());
         assertNull(result.getErrorMessage());
@@ -107,10 +124,11 @@ class ValidationUtilsTest {
         String password = "testPassword123"; // NOSONAR - Test data
         String confirmPassword = "differentPassword"; // NOSONAR - Test data
 
-        ValidationUtils.ValidationResult result = ValidationUtils.validatePasswordMatch(password, confirmPassword);
+        ValidationUtils.ValidationResult result =
+                ValidationUtils.validatePasswordMatch(password, confirmPassword, messages);
 
         assertFalse(result.valid());
-        assertEquals("validation.password.mismatch", result.getErrorMessage());
+        assertEquals(messages.get("validation.password.mismatch"), result.getErrorMessage());
     }
 
     @Test

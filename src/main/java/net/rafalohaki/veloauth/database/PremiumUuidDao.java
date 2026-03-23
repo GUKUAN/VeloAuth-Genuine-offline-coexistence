@@ -2,8 +2,10 @@ package net.rafalohaki.veloauth.database;
 
 import com.j256.ormlite.dao.Dao;
 import com.j256.ormlite.dao.DaoManager;
+import com.j256.ormlite.field.SqlType;
 import com.j256.ormlite.misc.TransactionManager;
 import com.j256.ormlite.stmt.DeleteBuilder;
+import com.j256.ormlite.stmt.SelectArg;
 import com.j256.ormlite.support.ConnectionSource;
 import net.rafalohaki.veloauth.model.PremiumUuid;
 import org.slf4j.Logger;
@@ -12,7 +14,10 @@ import org.slf4j.MarkerFactory;
 
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -48,21 +53,7 @@ public class PremiumUuidDao {
      */
     public Optional<PremiumUuid> findByNickname(String nickname) {
         try {
-            List<PremiumUuid> results = dao.queryBuilder()
-                    .where()
-                    .raw("LOWER(NICKNAME) = ?", new com.j256.ormlite.stmt.SelectArg(com.j256.ormlite.field.SqlType.STRING, nickname.toLowerCase(java.util.Locale.ROOT)))
-                    .query();
-
-            if (results.isEmpty()) {
-                logger.debug(DB_MARKER, "Nie znaleziono premium UUID dla nickname: {}", nickname);
-                return Optional.empty();
-            }
-
-            PremiumUuid result = results.get(0);
-            logger.debug(DB_MARKER, "Znaleziono premium UUID dla {}: {} -> {}",
-                    nickname, result.getUuid(), result.getNickname());
-            return Optional.of(result);
-
+            return findByNicknameStrict(nickname);
         } catch (SQLException e) {
             logger.error(DB_MARKER,
                     "Database error looking up premium UUID for nickname '{}' — returning empty (fail-open: caller may treat this as 'not premium')",
@@ -78,18 +69,11 @@ public class PremiumUuidDao {
      * @return Optional z PremiumUuid jeśli znaleziono
      */
     public Optional<PremiumUuid> findByUuid(UUID uuid) {
+        if (uuid == null) {
+            return Optional.empty();
+        }
         try {
-            PremiumUuid result = dao.queryForId(uuid.toString());
-            if (result == null) {
-                logger.debug(DB_MARKER, "Nie znaleziono premium UUID dla UUID: {}", uuid);
-                return Optional.empty();
-            }
-
-            if (logger.isDebugEnabled()) {
-                logger.debug(DB_MARKER, "Znaleziono premium UUID dla {}: {}", uuid, result.getNickname());
-            }
-            return Optional.of(result);
-
+            return findByUuidStrict(uuid);
         } catch (SQLException e) {
             logger.error(DB_MARKER,
                     "Database error looking up premium UUID for UUID '{}' — returning empty (fail-open: caller may treat this as 'not premium')",
@@ -109,49 +93,81 @@ public class PremiumUuidDao {
      */
     public boolean saveOrUpdate(UUID uuid, String nickname) {
         try {
-            return TransactionManager.callInTransaction(connectionSource, () -> {
-                // Sprawdź czy UUID już istnieje
-                Optional<PremiumUuid> existing = findByUuid(uuid);
-
-                if (existing.isPresent()) {
-                    // Aktualizuj istniejący wpis (zmiana nickname)
-                    PremiumUuid premiumUuid = existing.get();
-                    if (!premiumUuid.getNickname().equals(nickname)) {
-                        logger.info(DB_MARKER, "Aktualizacja nickname premium: {} -> {} (UUID: {})",
-                                premiumUuid.getNickname(), nickname, uuid);
-
-                        // Premium gracze omijają AUTH table - tylko PREMIUM_UUIDS cache
-                        premiumUuid.updateNickname(nickname);
-                        dao.update(premiumUuid);
-                    } else {
-                        // Tylko aktualizuj timestamp
-                        premiumUuid.updateLastSeen();
-                        dao.update(premiumUuid);
-                        logger.debug(DB_MARKER, "Zaktualizowano last_seen dla {}: {}", nickname, uuid);
-                    }
-                } else {
-                    // Sprawdź czy nickname jest używany przez inne UUID (konflikt)
-                    Optional<PremiumUuid> byNickname = findByNickname(nickname);
-                    if (byNickname.isPresent() && !byNickname.get().getUuid().equals(uuid)) {
-                        logger.warn(DB_MARKER, "Konflikt nickname! {} jest już używany przez {}, próba zapisu z {}",
-                                nickname, byNickname.get().getUuid(), uuid);
-                        // Usuń stary wpis i zapisz nowy (UUID jest autorytatywne)
-                        dao.deleteById(byNickname.get().getUuidString());
-                    }
-
-                    // Zapisz nowy wpis
-                    PremiumUuid premiumUuid = new PremiumUuid(uuid, nickname);
-                    dao.create(premiumUuid);
-                    logger.info(DB_MARKER, "Zapisano nowy premium UUID: {} -> {}", nickname, uuid);
-                }
-
-                return true;
-            });
-
+            return saveOrUpdateStrict(uuid, nickname);
         } catch (Exception e) {
             logger.error(DB_MARKER, "Błąd podczas zapisu/aktualizacji premium UUID: {} -> {}", uuid, nickname, e);
             return false;
         }
+    }
+
+    Optional<PremiumUuid> findByNicknameStrict(String nickname) throws SQLException {
+        String normalizedNickname = normalizeNickname(nickname);
+        if (normalizedNickname == null) {
+            return Optional.empty();
+        }
+
+        List<PremiumUuid> results = queryByNicknameIgnoreCase(normalizedNickname);
+        if (results.isEmpty()) {
+            logger.debug(DB_MARKER, "Nie znaleziono premium UUID dla nickname: {}", nickname);
+            return Optional.empty();
+        }
+
+        PremiumUuid preferredResult = results.get(0);
+        if (results.size() > 1 && logger.isWarnEnabled()) {
+            logger.warn(DB_MARKER, "Wykryto {} wpisów PREMIUM_UUIDS dla nickname {} - używam najnowszego",
+                    results.size(), nickname);
+        }
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, "Znaleziono premium UUID dla {}: {} -> {}",
+                    nickname, preferredResult.getUuid(), preferredResult.getNickname());
+        }
+        return Optional.of(preferredResult);
+    }
+
+    Optional<PremiumUuid> findByUuidStrict(UUID uuid) throws SQLException {
+        Objects.requireNonNull(uuid, "uuid nie może być null");
+        PremiumUuid result = dao.queryForId(uuid.toString());
+        if (result == null) {
+            logger.debug(DB_MARKER, "Nie znaleziono premium UUID dla UUID: {}", uuid);
+            return Optional.empty();
+        }
+
+        validateLoadedEntry(result);
+        if (logger.isDebugEnabled()) {
+            logger.debug(DB_MARKER, "Znaleziono premium UUID dla {}: {}", uuid, result.getNickname());
+        }
+        return Optional.of(result);
+    }
+
+    boolean saveOrUpdateStrict(UUID uuid, String nickname) throws SQLException {
+        Objects.requireNonNull(uuid, "uuid nie może być null");
+        String validatedNickname = requireNickname(nickname);
+        String normalizedNickname = normalizeNickname(validatedNickname);
+
+        return TransactionManager.callInTransaction(connectionSource, () -> {
+            Optional<PremiumUuid> existing = findByUuidStrict(uuid);
+            List<PremiumUuid> conflictingEntries = queryByNicknameIgnoreCase(normalizedNickname);
+            deleteNicknameConflicts(uuid, validatedNickname, conflictingEntries);
+
+            if (existing.isPresent()) {
+                PremiumUuid premiumUuid = existing.get();
+                if (!premiumUuid.getNickname().equals(validatedNickname)) {
+                    logger.info(DB_MARKER, "Aktualizacja nickname premium: {} -> {} (UUID: {})",
+                            premiumUuid.getNickname(), validatedNickname, uuid);
+                    premiumUuid.updateNickname(validatedNickname);
+                } else {
+                    premiumUuid.updateLastSeen();
+                    logger.debug(DB_MARKER, "Zaktualizowano last_seen dla {}: {}", validatedNickname, uuid);
+                }
+                dao.update(premiumUuid);
+                return true;
+            }
+
+            PremiumUuid premiumUuid = new PremiumUuid(uuid, validatedNickname);
+            dao.create(premiumUuid);
+            logger.info(DB_MARKER, "Zapisano nowy premium UUID: {} -> {}", validatedNickname, uuid);
+            return true;
+        });
     }
 
     /**
@@ -206,5 +222,60 @@ public class PremiumUuidDao {
             logger.error(DB_MARKER, "Błąd podczas pobierania wszystkich wpisów premium UUID", e);
             return new ArrayList<>();
         }
+    }
+
+    private List<PremiumUuid> queryByNicknameIgnoreCase(String normalizedNickname) throws SQLException {
+        List<PremiumUuid> results = dao.queryBuilder()
+                .where()
+                .raw("LOWER(NICKNAME) = ?", new SelectArg(SqlType.STRING, normalizedNickname))
+                .query();
+        List<PremiumUuid> validatedResults = new ArrayList<>(results.size());
+        for (PremiumUuid result : results) {
+            validateLoadedEntry(result);
+            validatedResults.add(result);
+        }
+        validatedResults.sort(Comparator
+                .comparingLong(PremiumUuid::getLastSeen)
+                .thenComparingLong(PremiumUuid::getVerifiedAt)
+                .reversed());
+        return validatedResults;
+    }
+
+    private void deleteNicknameConflicts(UUID authoritativeUuid, String nickname, List<PremiumUuid> nicknameEntries)
+            throws SQLException {
+        for (PremiumUuid nicknameEntry : nicknameEntries) {
+            if (authoritativeUuid.toString().equalsIgnoreCase(nicknameEntry.getUuidString())) {
+                continue;
+            }
+            logger.warn(DB_MARKER, "Usuwam konflikt nickname {} dla UUID {} (autorytatywny UUID: {})",
+                    nickname, nicknameEntry.getUuidString(), authoritativeUuid);
+            dao.deleteById(nicknameEntry.getUuidString());
+        }
+    }
+
+    private void validateLoadedEntry(PremiumUuid entry) throws SQLException {
+        if (entry == null) {
+            return;
+        }
+        if (entry.getUuid() == null) {
+            throw new SQLException("Invalid PREMIUM_UUIDS row: malformed UUID");
+        }
+        if (entry.getNickname() == null || entry.getNickname().isBlank()) {
+            throw new SQLException("Invalid PREMIUM_UUIDS row: nickname cannot be blank");
+        }
+    }
+
+    private String normalizeNickname(String nickname) {
+        if (nickname == null || nickname.isBlank()) {
+            return null;
+        }
+        return nickname.toLowerCase(Locale.ROOT);
+    }
+
+    private String requireNickname(String nickname) {
+        if (nickname == null || nickname.isBlank()) {
+            throw new IllegalArgumentException("nickname nie może być pusty");
+        }
+        return nickname;
     }
 }

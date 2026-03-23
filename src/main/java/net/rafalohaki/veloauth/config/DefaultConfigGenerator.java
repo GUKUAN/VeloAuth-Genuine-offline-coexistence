@@ -72,17 +72,18 @@ final class DefaultConfigGenerator {
                   # If set, will be used instead of individual parameters
                   # Examples:
                   #   postgresql://user:pass@host:5432/database
-                  #   postgresql://user:pass@host:5432/database?sslmode=disable
                   #   mysql://user:pass@host:3306/database
                   connection-url: ""
                   # Optional: Additional connection parameters
+                  # Query parameters inside connection-url are ignored; place them here instead.
+                  # For PostgreSQL SSL options, prefer database.postgresql.* settings below.
                   # Example: "?autoReconnect=true&initialTimeout=1&useSSL=false&serverTimezone=UTC"
                   connection-parameters: ""
-                
+                 
                   # PostgreSQL-specific configuration (used when storage-type is POSTGRESQL)
                   postgresql:
-                    # Enable SSL connection to PostgreSQL
-                    ssl-enabled: false
+                    # Enable SSL connection to PostgreSQL (recommended for hosted databases)
+                    ssl-enabled: true
                     # SSL mode: disable, allow, prefer, require, verify-ca, verify-full
                     ssl-mode: "require"
                     # Path to SSL certificate file (optional)
@@ -124,7 +125,7 @@ final class DefaultConfigGenerator {
                 
                 # Security settings for password hashing and brute-force protection
                 security:
-                  bcrypt-cost: 10 # BCrypt hashing rounds (4-31)
+                  bcrypt-cost: 10 # BCrypt hashing rounds (10-31)
                   bruteforce-max-attempts: 5 # Attempts before temporary block
                   bruteforce-timeout-minutes: 5 # Block duration in minutes
                   ip-limit-registrations: 3 # Account registrations per IP

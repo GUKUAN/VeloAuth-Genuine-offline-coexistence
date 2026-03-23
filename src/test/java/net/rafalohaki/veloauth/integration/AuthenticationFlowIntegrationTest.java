@@ -1,7 +1,10 @@
 package net.rafalohaki.veloauth.integration;
 
 import com.velocitypowered.api.event.connection.PreLoginEvent;
+import com.velocitypowered.api.event.player.ServerPreConnectEvent;
 import com.velocitypowered.api.proxy.Player;
+import com.velocitypowered.api.proxy.server.RegisteredServer;
+import com.velocitypowered.api.proxy.server.ServerInfo;
 import net.rafalohaki.veloauth.cache.AuthCache;
 import net.rafalohaki.veloauth.config.Settings;
 import net.rafalohaki.veloauth.connection.ConnectionManager;
@@ -578,6 +581,59 @@ class AuthenticationFlowIntegrationTest {
                 "Offline player with DB error should still use forceOfflineMode - it's safe for them");
     }
 
+    @Test
+    void testBackendVerification_asyncUuidLookupShouldRecheckAuthorizationState() throws Exception {
+        String username = "AsyncVerification";
+        UUID playerUuid = UUID.randomUUID();
+        String playerIp = "192.168.1.105";
+
+        CompletableFuture<DatabaseManager.DbResult<RegisteredPlayer>> uuidLookup = new CompletableFuture<>();
+        databaseManager.setFindResult(username.toLowerCase(), uuidLookup);
+
+        ConnectionManager connectionManager = mock(ConnectionManager.class);
+        AuthListener authListener = new AuthListener(
+                plugin, authCache, settings, preLoginHandler, postLoginHandler,
+                connectionManager, databaseManager, messages);
+        setPluginInitialized(true);
+
+        CachedAuthUser cachedUser = new CachedAuthUser(
+                playerUuid, username, playerIp, System.currentTimeMillis(), false, null);
+        authCache.addAuthorizedPlayer(playerUuid, cachedUser);
+        authCache.startSession(playerUuid, username, playerIp);
+
+        Player player = mock(Player.class);
+        when(player.getUsername()).thenReturn(username);
+        when(player.getUniqueId()).thenReturn(playerUuid);
+        when(player.isOnlineMode()).thenReturn(false);
+        when(player.isActive()).thenReturn(true);
+        when(player.getRemoteAddress()).thenReturn(new InetSocketAddress(playerIp, 25565));
+
+        RegisteredServer backendServer = mock(RegisteredServer.class);
+        when(backendServer.getServerInfo()).thenReturn(
+                new ServerInfo("backend", InetSocketAddress.createUnresolved("127.0.0.1", 25566)));
+
+        RegisteredServer previousServer = mock(RegisteredServer.class);
+        when(previousServer.getServerInfo()).thenReturn(
+                new ServerInfo(settings.getAuthServerName(), InetSocketAddress.createUnresolved("127.0.0.1", 25565)));
+
+        ServerPreConnectEvent event = new ServerPreConnectEvent(player, backendServer, previousServer);
+        com.velocitypowered.api.event.EventTask task = authListener.onServerPreConnect(event);
+        assertNotNull(task, "Backend UUID verification should run asynchronously");
+
+        authCache.removeAuthorizedPlayer(playerUuid);
+        authCache.endSession(playerUuid);
+
+        RegisteredPlayer dbPlayer = new RegisteredPlayer();
+        dbPlayer.setNickname(username);
+        dbPlayer.setUuid(playerUuid.toString());
+        uuidLookup.complete(DatabaseManager.DbResult.success(dbPlayer));
+
+        awaitEventTask(task);
+
+        assertFalse(event.getResult().isAllowed(),
+                "Async UUID verification must re-check auth state before allowing backend access");
+    }
+
     private void setPluginInitialized(boolean value) throws Exception {
         java.lang.reflect.Field field = net.rafalohaki.veloauth.VeloAuth.class.getDeclaredField("initialized");
         field.setAccessible(true);
@@ -587,14 +643,20 @@ class AuthenticationFlowIntegrationTest {
     private void awaitPreLoginEvent(AuthListener authListener, PreLoginEvent event) {
         com.velocitypowered.api.event.EventTask task = authListener.onPreLogin(event);
         if (task != null) {
+            awaitEventTask(task);
+        }
+    }
+
+    private void awaitEventTask(com.velocitypowered.api.event.EventTask task) {
+        try {
+            java.lang.reflect.Field futureField = task.getClass().getDeclaredField("future");
+            futureField.setAccessible(true);
+            ((CompletableFuture<?>) futureField.get(task)).join();
+        } catch (ReflectiveOperationException e) {
             try {
-                java.lang.reflect.Field futureField = task.getClass().getDeclaredField("future");
-                futureField.setAccessible(true);
-                ((CompletableFuture<?>) futureField.get(task)).join();
-            } catch (ReflectiveOperationException e) {
-                try { Thread.sleep(500); } catch (InterruptedException ignored) {
-                    Thread.currentThread().interrupt();
-                }
+                Thread.sleep(500);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
             }
         }
     }

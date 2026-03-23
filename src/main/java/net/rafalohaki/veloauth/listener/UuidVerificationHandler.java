@@ -78,7 +78,8 @@ public class UuidVerificationHandler {
     }
 
     private java.util.concurrent.CompletableFuture<Boolean> verifyCrackedPlayerUuidAsync(Player player) {
-        return databaseManager.findPlayerByNickname(player.getUsername())
+        String username = player.getUsername();
+        return databaseManager.findPlayerByNickname(username)
                 .thenApply(dbResult -> {
                     if (dbResult.isDatabaseError()) {
                         return handleDatabaseVerificationError(player, dbResult);

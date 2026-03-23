@@ -68,8 +68,11 @@ public final class CachedAuthUser {
         if (uuid == null) {
             throw new IllegalArgumentException("UUID nie może być null");
         }
-        if (nickname == null || nickname.isEmpty()) {
+        if (nickname == null || nickname.isBlank()) {
             throw new IllegalArgumentException("Nickname nie może być pusty");
+        }
+        if (!isPremium && premiumUuid != null) {
+            throw new IllegalArgumentException("Premium UUID wymaga konta premium");
         }
 
         this.uuid = uuid;
@@ -284,14 +287,14 @@ public final class CachedAuthUser {
     @Override
     public String toString() {
         return "CachedAuthUser{" +
-                "uuid=" + uuid +
+                "uuid=[REDACTED]" +
                 ", nickname='" + nickname + '\'' +
-                ", loginIp='" + loginIp + '\'' +
+                ", loginIp='[REDACTED]'" +
                 ", cacheTime=" + cacheTime +
                 ", lastAccessTime=" + lastAccessTime.get() +
                 ", loginTime=" + loginTime +
                 ", isPremium=" + isPremium +
-                ", premiumUuid=" + premiumUuid +
+                ", hasPremiumUuid=" + (premiumUuid != null) +
                 ", cacheAgeMinutes=" + getCacheAgeMinutes() +
                 '}';
     }

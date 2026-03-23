@@ -11,7 +11,6 @@ import org.slf4j.MarkerFactory;
 
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Shared post-authentication flow used by both LoginCommand and RegisterCommand.
@@ -46,24 +45,8 @@ final class PostAuthFlow {
 
         // Defense-in-depth: persist PREMIUMUUID for premium players who ended up in offline path
         UUID premiumUuid = resolvePremiumUuid(ctx, authContext.player());
-        if (isPremium && player.getPremiumUuid() == null && premiumUuid != null) {
-            player.setPremiumUuid(premiumUuid.toString());
-            ctx.databaseManager().savePlayer(player)
-                    .exceptionally(throwable -> {
-                        ctx.logger().error("[PREMIUM] Failed to persist PREMIUMUUID for {}: {}",
-                                authContext.username(), throwable.getMessage());
-                        return null;
-                    });
-            ctx.logger().info("[PREMIUM] Persisted PREMIUMUUID for {} in AUTH table", authContext.username());
-
-            // Sync PREMIUM_UUIDS table to keep isPremium() consistent with isPlayerPremiumRuntime()
-            ctx.databaseManager().savePremiumUuid(authContext.username(), premiumUuid)
-                    .exceptionally(throwable -> {
-                        ctx.logger().warn(AUTH_MARKER,
-                                "Failed to sync PREMIUM_UUIDS table for {}: {}",
-                                authContext.username(), throwable.getMessage());
-                        return null;
-                    });
+        if (!persistPremiumUuid(ctx, authContext, player, isPremium, premiumUuid)) {
+            return false;
         }
 
         CachedAuthUser cachedUser = CachedAuthUser.fromRegisteredPlayer(player, isPremium, premiumUuid);
@@ -81,6 +64,68 @@ final class PostAuthFlow {
 
         ctx.plugin().getConnectionManager().transferToBackend(p);
         return true;
+    }
+
+    private static boolean persistPremiumUuid(CommandContext ctx, AuthenticationContext authContext,
+                                              RegisteredPlayer player, boolean isPremium,
+                                              UUID premiumUuid) {
+        if (!isPremium || player.getPremiumUuid() != null || premiumUuid == null) {
+            return true;
+        }
+
+        player.setPremiumUuid(premiumUuid.toString());
+
+        try {
+            var savePlayerResult = ctx.databaseManager().savePlayer(player).join();
+            if (ctx.handleDatabaseError(savePlayerResult, authContext.player(),
+                    "Persist premium UUID in AUTH table")) {
+                return false;
+            }
+            if (!Boolean.TRUE.equals(savePlayerResult.getValue())) {
+                logPremiumUuidFailure(ctx, authContext.username(),
+                        "AUTH table update returned false while persisting PREMIUMUUID");
+                ctx.sendDatabaseErrorMessage(authContext.player());
+                return false;
+            }
+
+            var savePremiumUuidResult = ctx.databaseManager()
+                    .savePremiumUuid(authContext.username(), premiumUuid)
+                    .join();
+            if (ctx.handleDatabaseError(savePremiumUuidResult, authContext.player(),
+                    "Sync PREMIUM_UUIDS table")) {
+                return false;
+            }
+            if (!Boolean.TRUE.equals(savePremiumUuidResult.getValue())) {
+                logPremiumUuidFailure(ctx, authContext.username(),
+                        "PREMIUM_UUIDS sync returned false");
+                ctx.sendDatabaseErrorMessage(authContext.player());
+                return false;
+            }
+        } catch (java.util.concurrent.CompletionException e) {
+            logPremiumUuidFailure(ctx, authContext.username(), "Unexpected async premium UUID failure", e);
+            ctx.sendDatabaseErrorMessage(authContext.player());
+            return false;
+        }
+
+        if (ctx.logger().isInfoEnabled()) {
+            ctx.logger().info(AUTH_MARKER,
+                    "Persisted PREMIUMUUID for {} in AUTH and PREMIUM_UUIDS tables",
+                    authContext.username());
+        }
+        return true;
+    }
+
+    private static void logPremiumUuidFailure(CommandContext ctx, String username, String message) {
+        if (ctx.logger().isWarnEnabled()) {
+            ctx.logger().warn(AUTH_MARKER, "{} for {}", message, username);
+        }
+    }
+
+    private static void logPremiumUuidFailure(CommandContext ctx, String username,
+                                              String message, Throwable throwable) {
+        if (ctx.logger().isErrorEnabled()) {
+            ctx.logger().error(AUTH_MARKER, "{} for {}", message, username, throwable);
+        }
     }
 
     /**

@@ -15,16 +15,19 @@ import java.util.UUID;
 @DatabaseTable(tableName = "PREMIUM_UUIDS")
 public class PremiumUuid {
 
+    private static final String UUID_INVALID_ERROR = "UUID gracza premium musi być prawidłowy";
+    private static final String NICKNAME_EMPTY_ERROR = "Nickname premium nie może być pusty";
+
     /**
      * UUID gracza premium (klucz główny).
      */
-    @DatabaseField(columnName = "UUID", id = true)
+    @DatabaseField(columnName = "UUID", id = true, canBeNull = false)
     private String uuid;
 
     /**
      * Aktualny nickname gracza (może się zmieniać).
      */
-    @DatabaseField(columnName = "NICKNAME")
+    @DatabaseField(columnName = "NICKNAME", canBeNull = false)
     private String nickname;
 
     /**
@@ -52,10 +55,7 @@ public class PremiumUuid {
      * @param nickname Aktualny nickname gracza
      */
     public PremiumUuid(UUID uuid, String nickname) {
-        this.uuid = uuid.toString();
-        this.nickname = nickname;
-        this.lastSeen = System.currentTimeMillis();
-        this.verifiedAt = System.currentTimeMillis();
+        this(uuid.toString(), nickname);
     }
 
     /**
@@ -65,10 +65,11 @@ public class PremiumUuid {
      * @param nickname Aktualny nickname gracza
      */
     public PremiumUuid(String uuid, String nickname) {
-        this.uuid = uuid;
-        this.nickname = nickname;
-        this.lastSeen = System.currentTimeMillis();
-        this.verifiedAt = System.currentTimeMillis();
+        this.uuid = requireUuid(uuid);
+        this.nickname = requireNickname(nickname);
+        long now = System.currentTimeMillis();
+        this.lastSeen = now;
+        this.verifiedAt = now;
     }
 
     /**
@@ -78,7 +79,7 @@ public class PremiumUuid {
      * @param newNickname Nowy nickname gracza
      */
     public void updateNickname(String newNickname) {
-        this.nickname = newNickname;
+        this.nickname = requireNickname(newNickname);
         this.lastSeen = System.currentTimeMillis();
     }
 
@@ -108,7 +109,7 @@ public class PremiumUuid {
     }
 
     public void setUuid(String uuid) {
-        this.uuid = uuid;
+        this.uuid = requireUuid(uuid);
     }
 
     public String getUuidString() {
@@ -120,7 +121,7 @@ public class PremiumUuid {
     }
 
     public void setNickname(String nickname) {
-        this.nickname = nickname;
+        this.nickname = requireNickname(nickname);
     }
 
     public long getLastSeen() {
@@ -155,10 +156,24 @@ public class PremiumUuid {
     @Override
     public String toString() {
         return "PremiumUuid{" +
-                "uuid='" + uuid + '\'' +
+                "uuid='[REDACTED]'" +
                 ", nickname='" + nickname + '\'' +
                 ", lastSeen=" + lastSeen +
                 ", verifiedAt=" + verifiedAt +
                 '}';
+    }
+
+    private static String requireUuid(String uuid) {
+        if (UuidUtils.parseUuidSafely(uuid) == null) {
+            throw new IllegalArgumentException(UUID_INVALID_ERROR);
+        }
+        return uuid;
+    }
+
+    private static String requireNickname(String nickname) {
+        if (nickname == null || nickname.isBlank()) {
+            throw new IllegalArgumentException(NICKNAME_EMPTY_ERROR);
+        }
+        return nickname;
     }
 }

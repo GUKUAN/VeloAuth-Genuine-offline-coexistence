@@ -12,6 +12,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -49,6 +50,7 @@ public final class JdbcAuthDao {
     // SQL fragment constants
     private static final String WHERE_CLAUSE = " WHERE ";
     private static final String COMMA_SPACE_EQUALS_QUESTION = " = ?, ";
+    private static final String INTEGRITY_CONSTRAINT_SQLSTATE_PREFIX = "23";
 
     private final DatabaseConfig config;
     private final boolean postgres;
@@ -143,8 +145,11 @@ public final class JdbcAuthDao {
             connection.setAutoCommit(false);
             try {
                 int updated = executeUpdate(connection, player);
+                if (updated > 1) {
+                    throw new SQLException("AUTH upsert updated multiple rows for " + player.getLowercaseNickname());
+                }
                 if (updated == 0) {
-                    executeInsert(connection, player);
+                    executeInsertWithDuplicateRecovery(connection, player);
                 }
                 connection.commit();
                 return true;
@@ -223,6 +228,25 @@ public final class JdbcAuthDao {
         }
     }
 
+    private void executeInsertWithDuplicateRecovery(Connection connection, RegisteredPlayer player) throws SQLException {
+        try {
+            executeInsert(connection, player);
+        } catch (SQLException e) {
+            if (!isDuplicateKeyViolation(e)) {
+                throw e;
+            }
+            int recoveredUpdateCount = executeUpdate(connection, player);
+            if (recoveredUpdateCount != 1) {
+                throw new SQLException("Failed to recover duplicate-key upsert for "
+                        + player.getLowercaseNickname(), e);
+            }
+            if (logger.isDebugEnabled()) {
+                logger.debug("Recovered duplicate-key race during AUTH upsert for {}",
+                        player.getLowercaseNickname());
+            }
+        }
+    }
+
     private void bindInsert(PreparedStatement statement, RegisteredPlayer player) throws SQLException {
         statement.setString(1, player.getLowercaseNickname());
         bindCorePlayerFields(statement, player, 2);
@@ -249,34 +273,35 @@ public final class JdbcAuthDao {
     }
 
     private RegisteredPlayer mapPlayer(ResultSet resultSet) throws SQLException {
-        RegisteredPlayer player = new RegisteredPlayer();
-        String nickname = null;
-        try {
-            nickname = resultSet.getString(COL_NICKNAME);
-            if (nickname != null && !nickname.isEmpty()) {
-                player.setNickname(nickname);
-            }
-        } catch (IllegalArgumentException e) {
-            if (logger.isWarnEnabled()) {
-                logger.warn("Nieprawidłowy nickname w bazie danych", e);
-            }
-            throw new SQLException("Invalid nickname stored in database for player: " + nickname, e);
+        String nickname = resultSet.getString(COL_NICKNAME);
+        String storedLowercaseNickname = resultSet.getString(COL_LOWERCASE_NICKNAME);
+        if (nickname == null || nickname.isBlank()) {
+            throw new SQLException("Invalid nickname stored in database");
         }
 
-        // Hash może być null dla graczy premium (limboauth compatibility)
-        player.setHash(resultSet.getString(COL_HASH));
-        player.setIp(resultSet.getString(COL_IP));
-        player.setLoginIp(resultSet.getString(COL_LOGIN_IP));
-        player.setUuid(resultSet.getString(COL_UUID));
-        player.setRegDate(resultSet.getLong(COL_REG_DATE));
-        player.setLoginDate(resultSet.getLong(COL_LOGIN_DATE));
-
-        // Limboauth compatibility columns
-        player.setPremiumUuid(resultSet.getString(COL_PREMIUM_UUID));
-        player.setTotpToken(resultSet.getString(COL_TOTP_TOKEN));
-        player.setIssuedTime(resultSet.getLong(COL_ISSUED_TIME));
-
-        return player;
+        RegisteredPlayer player = new RegisteredPlayer();
+        try {
+            player.setNickname(nickname);
+            if (storedLowercaseNickname == null || storedLowercaseNickname.isBlank()
+                    || !storedLowercaseNickname.equals(player.getLowercaseNickname())) {
+                throw new IllegalArgumentException("Stored lowercase nickname does not match nickname");
+            }
+            player.setHash(resultSet.getString(COL_HASH));
+            player.setIp(resultSet.getString(COL_IP));
+            player.setLoginIp(resultSet.getString(COL_LOGIN_IP));
+            player.setUuid(resultSet.getString(COL_UUID));
+            player.setRegDate(resultSet.getLong(COL_REG_DATE));
+            player.setLoginDate(resultSet.getLong(COL_LOGIN_DATE));
+            player.setPremiumUuid(resultSet.getString(COL_PREMIUM_UUID));
+            player.setTotpToken(resultSet.getString(COL_TOTP_TOKEN));
+            player.setIssuedTime(resultSet.getLong(COL_ISSUED_TIME));
+            return player;
+        } catch (IllegalArgumentException e) {
+            if (logger.isWarnEnabled()) {
+                logger.warn("Nieprawidłowy wiersz AUTH w bazie danych dla {}", nickname, e);
+            }
+            throw new SQLException("Invalid AUTH row stored in database for player: " + nickname, e);
+        }
     }
 
     /**
@@ -315,11 +340,16 @@ public final class JdbcAuthDao {
                 return conflicts;
             }
         } catch (SQLException e) {
-            // Graceful fallback for shared LimboAuth databases without conflict columns
-            if (logger.isDebugEnabled()) {
-                logger.debug("Conflict columns not available in database (shared LimboAuth?): {}", e.getMessage());
+            if (isMissingConflictColumnsError(e)) {
+                if (logger.isDebugEnabled()) {
+                    logger.debug("Conflict columns not available in database (shared LimboAuth?): {}", e.getMessage());
+                }
+                return List.of();
             }
-            return List.of();
+            if (logger.isErrorEnabled()) {
+                logger.error("Failed to query conflict-mode players", e);
+            }
+            throw e;
         }
     }
 
@@ -378,5 +408,37 @@ public final class JdbcAuthDao {
 
     private String quote(String identifier) {
         return '"' + identifier + '"';
+    }
+
+    private boolean isDuplicateKeyViolation(SQLException exception) {
+        String sqlState = exception.getSQLState();
+        if (sqlState != null && sqlState.startsWith(INTEGRITY_CONSTRAINT_SQLSTATE_PREFIX)) {
+            return true;
+        }
+        String message = exception.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String normalizedMessage = message.toLowerCase(Locale.ROOT);
+        return normalizedMessage.contains("duplicate")
+                || normalizedMessage.contains("unique constraint")
+                || normalizedMessage.contains("unique index")
+                || normalizedMessage.contains("primary key");
+    }
+
+    private boolean isMissingConflictColumnsError(SQLException exception) {
+        String sqlState = exception.getSQLState();
+        if ("42S22".equals(sqlState) || "42122".equals(sqlState)) {
+            return true;
+        }
+        String message = exception.getMessage();
+        if (message == null) {
+            return false;
+        }
+        String normalizedMessage = message.toLowerCase(Locale.ROOT);
+        return (normalizedMessage.contains("column") || normalizedMessage.contains("field"))
+                && (normalizedMessage.contains("conflict_mode")
+                || normalizedMessage.contains("conflict_timestamp")
+                || normalizedMessage.contains("original_nickname"));
     }
 }

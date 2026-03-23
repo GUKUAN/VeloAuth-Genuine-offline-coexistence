@@ -86,6 +86,26 @@ class MessagesExternalFilesTest {
     }
 
     @Test
+    void testExternalFiles_ResolvesDeprecatedKeys() {
+        assertEquals(messages.get("validation.password.too_short", 8),
+                messages.get("auth.register.password_too_short", 8));
+        assertEquals(messages.get("connection.error.generic"),
+                messages.get("error.connection.generic"));
+    }
+
+    @Test
+    void testExternalFiles_FormatsQuotedPlaceholdersAndApostrophes() throws IOException {
+        messages = new Messages(tempDir, "fr");
+
+        assertEquals("Le serveur auth server 'auth' n'est pas enregistré !",
+                messages.get("connection.picolimbo.error", "auth"));
+
+        messages = new Messages(tempDir, "tr");
+        assertEquals("✅ Oyuncu Alex başarıyla auth server'ya aktarıldı",
+                messages.get("player.transfer.success", "Alex"));
+    }
+
+    @Test
     void testReload_ReloadsLanguageFiles() throws IOException {
         // Given
         String originalMessage = messages.get("auth.login.success");

@@ -15,6 +15,7 @@ import java.util.Properties;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -61,7 +62,6 @@ class SimpleMessagesKeysTest {
             "error.database.query",
             "error.unknown_command",
             "error.unknown",
-            "error.connection.generic",
             // Security messages
             "security.brute_force.blocked",
             // Player conflict messages
@@ -132,6 +132,8 @@ class SimpleMessagesKeysTest {
             // Premium check status
             "premium.check_disabled",
             "premium.check_enabled",
+            // Command helper messages
+            "auth.registration.timeout",
             // Admin cache/stats messages
             "admin.cache_reset.success",
             "admin.cache_reset.player",
@@ -347,6 +349,17 @@ class SimpleMessagesKeysTest {
         
         assertTrue(emptyValues.isEmpty(), 
                 "Keys with empty values:" + emptyValues);
+    }
+
+    @ParameterizedTest
+    @MethodSource("builtInLanguages")
+    void builtInLanguages_doNotContainDeprecatedKeys(String language) throws IOException {
+        Properties languageProps = loadProperties("messages_" + language + ".properties");
+
+        assertFalse(languageProps.containsKey("auth.register.password_too_short"),
+                "Deprecated key auth.register.password_too_short should not exist in " + language);
+        assertFalse(languageProps.containsKey("error.connection.generic"),
+                "Deprecated key error.connection.generic should not exist in " + language);
     }
 
     @ParameterizedTest

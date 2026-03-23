@@ -110,7 +110,7 @@ public final class SimpleMessages {
     }
 
     public Component passwordShort(int min) {
-        return key("auth.register.password_too_short", NamedTextColor.RED, min);
+        return passwordTooShort(min);
     }
 
     public Component passwordMismatch() {

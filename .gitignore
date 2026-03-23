@@ -122,6 +122,7 @@ refactor/
 codacy.yaml
 .kiro/
 docs/
+audyt/
 .windsurf
 analiza.md
 

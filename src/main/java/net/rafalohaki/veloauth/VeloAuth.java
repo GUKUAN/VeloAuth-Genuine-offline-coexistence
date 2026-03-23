@@ -33,6 +33,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Velocity proxy authentication plugin.
@@ -51,6 +52,7 @@ import java.util.concurrent.TimeUnit;
 public class VeloAuth {
 
     private static final int BSTATS_PLUGIN_ID = 28142;
+    private static final long CLEANUP_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS = 5;
 
     private final ProxyServer server;
     private final Logger logger;
@@ -76,9 +78,11 @@ public class VeloAuth {
     // - Remains FALSE if initialization fails (prevents connections to broken plugin)
     // - Set to FALSE during shutdown to reject new operations
     private volatile boolean initialized = false;
+    private volatile boolean shutdownStarted = false;
 
     // Startup queue: connections arriving during init wait on this future instead of getting kicked
     private final CompletableFuture<Void> initializationFuture = new CompletableFuture<>();
+    private final ReentrantLock lifecycleLock = new ReentrantLock();
 
     /**
      * Konstruktor VeloAuth.
@@ -201,11 +205,18 @@ public class VeloAuth {
         // Initialize bStats metrics
         metricsFactory.make(this, BSTATS_PLUGIN_ID);
 
-        // CRITICAL: Complete future first so EarlyLoginBlocker queue can drain,
-        // then set flag. Order matters: future.complete() unblocks waiting connections,
-        // but they still go through AuthListener which checks isInitialized().
-        initializationFuture.complete(null);
-        initialized = true;
+        lifecycleLock.lock();
+        try {
+            if (shutdownStarted) {
+                logger.warn("Skipping initialization completion because shutdown already started");
+                return;
+            }
+
+            initialized = true;
+            initializationFuture.complete(null);
+        } finally {
+            lifecycleLock.unlock();
+        }
         
         logStartupInfo(initializationDuration);
     }
@@ -514,10 +525,20 @@ public class VeloAuth {
      * Zamyka wszystkie komponenty pluginu z graceful shutdown.
      */
     private void shutdown() {
-        // CRITICAL: Set initialized flag to FALSE immediately to reject new operations
-        initialized = false;
-        // Complete future exceptionally if still pending (shutdown during init)
-        initializationFuture.completeExceptionally(new IllegalStateException("Plugin shutting down"));
+        lifecycleLock.lock();
+        try {
+            if (shutdownStarted) {
+                logger.debug("Shutdown already in progress - skipping duplicate shutdown request");
+                return;
+            }
+
+            shutdownStarted = true;
+            initialized = false;
+            initializationFuture.completeExceptionally(new IllegalStateException("Plugin shutting down"));
+        } finally {
+            lifecycleLock.unlock();
+        }
+
         logger.info("🔴 Initialization flag set to FALSE - blocking all new player connections");
 
         try {
@@ -544,19 +565,12 @@ public class VeloAuth {
                 logger.debug("ConnectionManager zamknięty");
             }
 
+            shutdownCleanupScheduler(premiumCacheCleanupScheduler, "Premium cache cleanup scheduler");
+            shutdownCleanupScheduler(premiumDbCleanupScheduler, "Premium DB cleanup scheduler");
+
             if (authCache != null) {
                 authCache.shutdown();
                 logger.debug("AuthCache zamknięty");
-            }
-
-            if (premiumCacheCleanupScheduler != null) {
-                premiumCacheCleanupScheduler.shutdown();
-                logger.debug("Premium cache cleanup scheduler zamknięty");
-            }
-
-            if (premiumDbCleanupScheduler != null) {
-                premiumDbCleanupScheduler.shutdown();
-                logger.debug("Premium DB cleanup scheduler zamknięty");
             }
 
             // 5. Zamknij DB connection jako ostatni
@@ -574,6 +588,29 @@ public class VeloAuth {
         } catch (IllegalStateException e) {
             logger.error("Błąd stanu podczas graceful shutdown", e);
         }
+    }
+
+    private void shutdownCleanupScheduler(ScheduledExecutorService scheduler, String schedulerName) {
+        if (scheduler == null) {
+            return;
+        }
+
+        scheduler.shutdown();
+        try {
+            if (!scheduler.awaitTermination(CLEANUP_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                logger.warn("{} did not stop in time - forcing shutdown", schedulerName);
+                scheduler.shutdownNow();
+                if (!scheduler.awaitTermination(CLEANUP_SCHEDULER_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    logger.warn("{} still running after forced shutdown", schedulerName);
+                }
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            scheduler.shutdownNow();
+            logger.warn("Interrupted while stopping {}", schedulerName, e);
+        }
+
+        logger.debug("{} zamknięty", schedulerName);
     }
 
     private void logStartupInfo(long initializationDuration) {

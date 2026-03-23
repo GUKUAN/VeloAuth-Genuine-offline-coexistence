@@ -62,27 +62,27 @@ class RegisterCommand implements SimpleCommand {
         String password = args[0];
         String confirmPassword = args[1];
 
-        ValidationUtils.ValidationResult passwordValidation = ValidationUtils.validatePassword(password, ctx.settings());
+        ValidationUtils.ValidationResult passwordValidation =
+                ValidationUtils.validatePassword(password, ctx.settings(), ctx.messages());
         if (!passwordValidation.valid()) {
             player.sendMessage(ValidationUtils.createErrorComponent(passwordValidation.getErrorMessage()));
             return;
         }
 
-        ValidationUtils.ValidationResult matchValidation = ValidationUtils.validatePasswordMatch(password, confirmPassword);
+        ValidationUtils.ValidationResult matchValidation =
+                ValidationUtils.validatePasswordMatch(password, confirmPassword, ctx.messages());
         if (!matchValidation.valid()) {
             player.sendMessage(ValidationUtils.createErrorComponent(matchValidation.getErrorMessage()));
             return;
         }
 
-        CommandHelper.runAsyncCommandWithTimeout(() -> processRegistration(player, password),
-                ctx.messages(), source, ERROR_DATABASE_QUERY, "auth.registration.timeout");
+        ctx.runAsyncCommandWithTimeout(source, () -> processRegistration(player, password),
+                ERROR_DATABASE_QUERY, "auth.registration.timeout");
     }
 
     private void processRegistration(Player player, String password) {
         if (!ctx.tryAcquireCommandLock(player.getUniqueId())) {
-            player.sendMessage(net.kyori.adventure.text.Component.text(
-                    ctx.messages().get("auth.command.in_progress"),
-                    net.kyori.adventure.text.format.NamedTextColor.YELLOW));
+            ctx.sendCommandInProgress(player);
             return;
         }
         try {
@@ -130,8 +130,9 @@ class RegisterCommand implements SimpleCommand {
                 return;
             }
 
-            authContext.player().sendMessage(ctx.sm().registerSuccess());
-            PostAuthFlow.execute(ctx, authContext, newPlayer, "registered");
+            if (PostAuthFlow.execute(ctx, authContext, newPlayer, "registered")) {
+                authContext.player().sendMessage(ctx.sm().registerSuccess());
+            }
         } finally {
             ctx.releaseCommandLock(player.getUniqueId());
         }

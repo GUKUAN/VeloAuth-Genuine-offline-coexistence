@@ -4,6 +4,7 @@ import com.j256.ormlite.field.DatabaseField;
 import com.j256.ormlite.table.DatabaseTable;
 import net.rafalohaki.veloauth.util.UuidUtils;
 
+import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -15,6 +16,10 @@ import java.util.UUID;
  */
 @DatabaseTable(tableName = "AUTH")
 public class RegisteredPlayer {
+
+    private static final String NICKNAME_EMPTY_ERROR = "Nickname nie może być pusty";
+    private static final String UUID_INVALID_ERROR = "UUID gracza musi być prawidłowy";
+    private static final String PREMIUM_UUID_INVALID_ERROR = "Premium UUID gracza musi być prawidłowy";
 
     /**
      * Oryginalny nickname gracza (może zawierać duże/małe litery).
@@ -120,16 +125,10 @@ public class RegisteredPlayer {
      * @param uuid     UUID gracza Minecraft
      */
     public RegisteredPlayer(String nickname, String hash, String ip, String uuid) {
-        if (nickname == null || nickname.isEmpty()) {
-            throw new IllegalArgumentException("Nickname nie może być pusty");
-        }
-        // Hash może być null dla graczy premium (limboauth compatibility)
-
-        this.nickname = nickname;
-        this.lowercaseNickname = nickname.toLowerCase();
-        this.hash = hash;
+        setNickname(nickname);
+        setHash(hash);
         this.ip = ip;
-        this.uuid = uuid;
+        setUuid(uuid);
         this.loginIp = ip; // Początkowo IP logowania = IP rejestracji
 
         long currentTime = System.currentTimeMillis();
@@ -154,11 +153,9 @@ public class RegisteredPlayer {
      * @param nickname Nowy nickname
      */
     public void setNickname(String nickname) {
-        if (nickname == null || nickname.isEmpty()) {
-            throw new IllegalArgumentException("Nickname nie może być pusty");
-        }
-        this.nickname = nickname;
-        this.lowercaseNickname = nickname.toLowerCase();
+        String validatedNickname = requireNickname(nickname);
+        this.nickname = validatedNickname;
+        this.lowercaseNickname = validatedNickname.toLowerCase(Locale.ROOT);
     }
 
     /**
@@ -185,8 +182,7 @@ public class RegisteredPlayer {
      * @param hash Nowy BCrypt hash (null dla graczy premium)
      */
     public void setHash(String hash) {
-        // Hash może być null dla graczy premium (limboauth compatibility)
-        this.hash = hash;
+        this.hash = normalizeOptionalHash(hash);
     }
 
     /**
@@ -240,7 +236,7 @@ public class RegisteredPlayer {
      * @param uuid UUID gracza
      */
     public void setUuid(String uuid) {
-        this.uuid = uuid;
+        this.uuid = requireUuid(uuid, UUID_INVALID_ERROR);
     }
 
 
@@ -295,7 +291,7 @@ public class RegisteredPlayer {
      * @param premiumUuid Premium UUID gracza
      */
     public void setPremiumUuid(String premiumUuid) {
-        this.premiumUuid = premiumUuid;
+        this.premiumUuid = normalizeOptionalUuid(premiumUuid, PREMIUM_UUID_INVALID_ERROR);
     }
 
     /**
@@ -429,10 +425,44 @@ public class RegisteredPlayer {
                 ", lowercaseNickname='" + lowercaseNickname + '\'' +
                 ", ip='[REDACTED]'" +
                 ", loginIp='[REDACTED]'" +
-                ", uuid='" + uuid + '\'' +
+                ", uuid='" + redactValue(uuid) + '\'' +
                 ", regDate=" + regDate +
                 ", loginDate=" + loginDate +
-                ", isPremium=" + (premiumUuid != null) + // Direct check instead of deprecated method
+                ", hasPasswordHash=" + (hash != null && !hash.isBlank()) +
+                ", hasPremiumUuid=" + (premiumUuid != null) +
+                ", conflictMode=" + conflictMode +
                 '}';
+    }
+
+    private static String requireNickname(String nickname) {
+        if (nickname == null || nickname.isBlank()) {
+            throw new IllegalArgumentException(NICKNAME_EMPTY_ERROR);
+        }
+        return nickname;
+    }
+
+    private static String requireUuid(String uuid, String errorMessage) {
+        if (UuidUtils.parseUuidSafely(uuid) == null) {
+            throw new IllegalArgumentException(errorMessage);
+        }
+        return uuid;
+    }
+
+    private static String normalizeOptionalUuid(String uuid, String errorMessage) {
+        if (uuid == null || uuid.isBlank()) {
+            return null;
+        }
+        return requireUuid(uuid, errorMessage);
+    }
+
+    private static String normalizeOptionalHash(String hash) {
+        if (hash == null || hash.isBlank()) {
+            return null;
+        }
+        return hash;
+    }
+
+    private static String redactValue(String value) {
+        return value == null ? "null" : "[REDACTED]";
     }
 }

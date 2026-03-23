@@ -15,11 +15,13 @@ import org.slf4j.MarkerFactory;
 import java.lang.ref.WeakReference;
 import java.sql.SQLException;
 import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -59,8 +61,9 @@ public class DatabaseManager {
     private static final Marker CACHE_MARKER = MarkerFactory.getMarker("CACHE");
 
     private static final String DATABASE_NOT_CONNECTED = "Database not connected";
-    private static final String DATABASE_NOT_CONNECTED_PREMIUM_CHECK = "Database not connected - cannot check premium status for {}";
     private static final String EXECUTOR_SHUTTING_DOWN = ": Executor is shutting down";
+    private static final long FAIL_SECURE_IP_REGISTRATION_COUNT = Long.MAX_VALUE;
+    private static final long EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS = 30L;
 
     private final ConcurrentHashMap<String, RegisteredPlayer> playerCache;
     private final ReentrantLock databaseLock;
@@ -242,6 +245,9 @@ public class DatabaseManager {
     public void shutdown() {
         try {
             healthCheck.stop();
+            connected = false;
+            dbExecutor.shutdown();
+            awaitExecutorShutdown();
 
             databaseLock.lock();
             try {
@@ -253,8 +259,21 @@ public class DatabaseManager {
             if (logger.isErrorEnabled()) {
                 logger.error(DB_MARKER, "Error during database shutdown", e);
             }
-        } finally {
-            dbExecutor.shutdown();
+        }
+    }
+
+    private void awaitExecutorShutdown() {
+        try {
+            if (!dbExecutor.awaitTermination(EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+                    && logger.isWarnEnabled()) {
+                logger.warn(DB_MARKER, "Database executor did not terminate within {} seconds",
+                        EXECUTOR_SHUTDOWN_TIMEOUT_SECONDS);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            if (logger.isWarnEnabled()) {
+                logger.warn(DB_MARKER, "Interrupted while waiting for database executor shutdown");
+            }
         }
     }
 
@@ -268,9 +287,16 @@ public class DatabaseManager {
                 }
             }
             connectionSource = null;
-            if (logger.isInfoEnabled()) {
-                logger.info(DB_MARKER, messages.get("database.manager.connection_closed"));
+        }
+        try {
+            config.closeDataSource();
+        } catch (RuntimeException e) {
+            if (logger.isErrorEnabled()) {
+                logger.error(DB_MARKER, "Error closing database data source", e);
             }
+        }
+        if (logger.isInfoEnabled()) {
+            logger.info(DB_MARKER, messages.get("database.manager.connection_closed"));
         }
         connected = false;
         playerCache.clear();
@@ -370,10 +396,10 @@ public class DatabaseManager {
     }
 
     private String normalizeNickname(String nickname) {
-        if (nickname == null || nickname.isEmpty()) {
+        if (nickname == null || nickname.isBlank()) {
             return null;
         }
-        return nickname.toLowerCase();
+        return nickname.toLowerCase(Locale.ROOT);
     }
 
     private <T> DbResult<T> checkExecutorState() {
@@ -582,26 +608,34 @@ public class DatabaseManager {
      * Counts registrations from a specific IP address.
      */
     public CompletableFuture<Long> countRegistrationsByIp(String ip) {
-        if (ip == null || ip.isEmpty()) {
-            return CompletableFuture.completedFuture(0L);
-        }
-
-        return CompletableFuture.supplyAsync(() -> {
-            if (!connected) {
+        return countRegistrationsByIpResult(ip).thenApply(result -> {
+            if (result.isDatabaseError()) {
                 if (logger.isWarnEnabled()) {
-                    logger.warn(DB_MARKER, DATABASE_NOT_CONNECTED);
+                    logger.warn(DB_MARKER, "Fail-secure IP registration count fallback for {}", ip);
                 }
-                return 0L;
+                return FAIL_SECURE_IP_REGISTRATION_COUNT;
             }
-            try {
-                return jdbcAuthDao.countRegistrationsByIp(ip);
-            } catch (SQLException e) {
-                if (logger.isErrorEnabled()) {
-                    logger.error(DB_MARKER, "Error counting registrations by IP: {}", ip, e);
-                }
-                return 0L;
+            Long value = result.getValue();
+            return value == null ? 0L : value;
+        });
+    }
+
+    public CompletableFuture<DbResult<Long>> countRegistrationsByIpResult(String ip) {
+        if (ip == null || ip.isBlank()) {
+            return CompletableFuture.completedFuture(DbResult.success(0L));
+        }
+        return submitConnectedTask(() -> executeRegistrationCount(ip));
+    }
+
+    private DbResult<Long> executeRegistrationCount(String ip) {
+        try {
+            return DbResult.success(jdbcAuthDao.countRegistrationsByIp(ip));
+        } catch (SQLException e) {
+            if (logger.isErrorEnabled()) {
+                logger.error(DB_MARKER, "Error counting registrations by IP: {}", ip, e);
             }
-        }, dbExecutor);
+            return genericDatabaseErrorResult();
+        }
     }
 
     private <T> CompletableFuture<DbResult<T>> submitConnectedTask(Supplier<DbResult<T>> task) {
@@ -648,31 +682,29 @@ public class DatabaseManager {
      * Sprawdza premium status gracza z wykorzystaniem PREMIUM_UUIDS table.
      */
     public CompletableFuture<DbResult<Boolean>> isPremium(String username) {
-        if (username == null || username.isEmpty()) {
+        if (username == null || username.isBlank()) {
             return CompletableFuture.completedFuture(DbResult.success(false));
         }
 
-        return CompletableFuture.supplyAsync(() -> {
-            if (!connected) {
-                if (logger.isWarnEnabled()) {
-                    logger.warn(DB_MARKER, DATABASE_NOT_CONNECTED_PREMIUM_CHECK, username);
-                }
-                return DbResult.databaseError(DATABASE_NOT_CONNECTED);
-            }
-
+        return submitConnectedTask(() -> {
             try {
-                boolean premium = premiumUuidDao.findByNickname(username).isPresent();
+                boolean premium = premiumUuidDao.findByNicknameStrict(username).isPresent();
                 if (logger.isDebugEnabled()) {
                     logger.debug(DB_MARKER, "Premium status from PREMIUM_UUIDS for {}: {}", username, premium);
                 }
                 return DbResult.success(premium);
+            } catch (SQLException e) {
+                if (logger.isErrorEnabled()) {
+                    logger.error(DB_MARKER, "Error checking premium status for player: {}", username, e);
+                }
+                return genericDatabaseErrorResult();
             } catch (RuntimeException e) {
                 if (logger.isErrorEnabled()) {
                     logger.error(DB_MARKER, "Runtime error checking premium status for player: {}", username, e);
                 }
                 return genericDatabaseErrorResult();
             }
-        }, dbExecutor);
+        });
     }
 
     /**
@@ -765,18 +797,24 @@ public class DatabaseManager {
      * @return future resolving to true if saved successfully
      */
     public CompletableFuture<DbResult<Boolean>> savePremiumUuid(String username, UUID premiumUuid) {
-        if (username == null || premiumUuid == null) {
+        if (username == null || username.isBlank() || premiumUuid == null) {
             return CompletableFuture.completedFuture(DbResult.success(false));
         }
 
         return submitConnectedTask(() -> {
             try {
-                boolean success = premiumUuidDao.saveOrUpdate(premiumUuid, username);
+                boolean success = premiumUuidDao.saveOrUpdateStrict(premiumUuid, username);
                 if (logger.isDebugEnabled()) {
                     logger.debug(DB_MARKER, "Synced PREMIUM_UUIDS for {}: {} (success={})",
                             username, premiumUuid, success);
                 }
                 return DbResult.success(success);
+            } catch (SQLException e) {
+                if (logger.isErrorEnabled()) {
+                    logger.error(DB_MARKER, "Error syncing PREMIUM_UUIDS for {}: {}",
+                            username, premiumUuid, e);
+                }
+                return genericDatabaseErrorResult();
             } catch (RuntimeException e) {
                 if (logger.isErrorEnabled()) {
                     logger.error(DB_MARKER, "Error syncing PREMIUM_UUIDS for {}: {}",
@@ -825,16 +863,16 @@ public class DatabaseManager {
 
         // Fallback: LimboAuth compatibility — premium players have null/empty hash.
         // Keeps isPlayerPremiumRuntime consistent with getTotalPremiumAccounts() SQL:
-        //   PREMIUMUUID IS NOT NULL OR HASH IS NULL
+        //   PREMIUMUUID IS NOT NULL OR HASH IS NULL OR HASH = ''
         String hash = player.getHash();
-        return hash == null || hash.isEmpty();
+        return hash == null || hash.isBlank();
     }
 
     private void logRuntimeDetection(String nickname, boolean isPremium, String hash) {
         if (logger.isDebugEnabled()) {
             logger.debug("[RUNTIME DETECTION] {} -> {} (hash empty: {})", 
                        nickname, isPremium ? "PREMIUM" : "OFFLINE", 
-                       hash == null || hash.isEmpty());
+                       hash == null || hash.isBlank());
         }
     }
 

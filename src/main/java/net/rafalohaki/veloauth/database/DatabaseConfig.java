@@ -527,6 +527,28 @@ public final class DatabaseConfig {
     }
 
     /**
+     * Closes the configured DataSource when it supports explicit shutdown.
+     * Needed for pooled remote connections because ORMLite's DataSourceConnectionSource
+     * does not close the wrapped DataSource.
+     */
+    public void closeDataSource() {
+        if (dataSource == null) {
+            return;
+        }
+        if (dataSource instanceof HikariDataSource hikariDataSource) {
+            hikariDataSource.close();
+            return;
+        }
+        if (dataSource instanceof AutoCloseable autoCloseable) {
+            try {
+                autoCloseable.close();
+            } catch (Exception e) {
+                throw new IllegalStateException("Nie udało się zamknąć DataSource", e);
+            }
+        }
+    }
+
+    /**
      * Zwraca JDBC URL dla tej konfiguracji.
      *
      * @return JDBC URL

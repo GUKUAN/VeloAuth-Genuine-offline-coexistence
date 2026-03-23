@@ -3,6 +3,10 @@ package net.rafalohaki.veloauth.command;
 import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import net.rafalohaki.veloauth.config.Settings;
+import net.rafalohaki.veloauth.i18n.Messages;
+
+import java.nio.charset.StandardCharsets;
+import java.util.Objects;
 
 /**
  * Utility class for common validation operations across commands.
@@ -21,28 +25,28 @@ public final class ValidationUtils {
      * @param settings Settings instance for validation rules
      * @return ValidationResult with validation status and message
      */
-    public static ValidationResult validatePassword(String password, Settings settings) {
+    public static ValidationResult validatePassword(String password, Settings settings, Messages messages) {
         if (password == null || password.isEmpty()) {
-            return ValidationResult.error("validation.password.empty");
+            return ValidationResult.error(messages.get("validation.password.empty"));
         }
 
         if (password.length() < settings.getMinPasswordLength()) {
-            return ValidationResult.error(
-                    "validation.password.too_short:" + settings.getMinPasswordLength()
-            );
+            return ValidationResult.error(messages.get(
+                    "validation.password.too_short",
+                    settings.getMinPasswordLength()));
         }
 
         if (password.length() > settings.getMaxPasswordLength()) {
-            return ValidationResult.error(
-                    "validation.password.too_long:" + settings.getMaxPasswordLength()
-            );
+            return ValidationResult.error(messages.get(
+                    "validation.password.too_long",
+                    settings.getMaxPasswordLength()));
         }
 
-        int byteLength = password.getBytes(java.nio.charset.StandardCharsets.UTF_8).length;
+        int byteLength = password.getBytes(StandardCharsets.UTF_8).length;
         if (byteLength > 72) {
-            return ValidationResult.error(
-                    "validation.password.utf8_too_long:" + byteLength
-            );
+            return ValidationResult.error(messages.get(
+                    "validation.password.utf8_too_long",
+                    byteLength));
         }
 
         return ValidationResult.success();
@@ -55,9 +59,11 @@ public final class ValidationUtils {
      * @param confirmPassword Password confirmation
      * @return ValidationResult with validation status and message
      */
-    public static ValidationResult validatePasswordMatch(String password, String confirmPassword) {
-        if (!password.equals(confirmPassword)) {
-            return ValidationResult.error("validation.password.mismatch");
+    public static ValidationResult validatePasswordMatch(String password,
+                                                         String confirmPassword,
+                                                         Messages messages) {
+        if (!Objects.equals(password, confirmPassword)) {
+            return ValidationResult.error(messages.get("validation.password.mismatch"));
         }
         return ValidationResult.success();
     }

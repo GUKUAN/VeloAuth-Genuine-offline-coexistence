@@ -118,6 +118,14 @@ class CommandContext {
     }
 
     /**
+     * Handles database errors consistently across admin commands.
+     */
+    boolean handleDatabaseError(DatabaseManager.DbResult<?> result, CommandSource source,
+                                String identifier, String operation) {
+        return DatabaseErrorHandler.handleError(result, source, identifier, operation, logger, messages);
+    }
+
+    /**
      * Resets brute-force and rate-limit counters for the given IP address.
      */
     void resetSecurityCounters(InetAddress playerAddress) {
@@ -129,6 +137,50 @@ class CommandContext {
      */
     void sendDatabaseErrorMessage(Player player) {
         player.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
+    }
+
+    /**
+     * Sends a database error message to any command source.
+     */
+    void sendDatabaseErrorMessage(CommandSource source) {
+        source.sendMessage(ValidationUtils.createErrorComponent(messages.get("error.database.query")));
+    }
+
+    /**
+     * Executes a command asynchronously using the shared command helper.
+     */
+    void runAsyncCommand(CommandSource source, Runnable task, String errorKey) {
+        CommandHelper.runAsyncCommand(task, messages, source, errorKey);
+    }
+
+    /**
+     * Executes a command asynchronously with timeout using the shared command helper.
+     */
+    void runAsyncCommandWithTimeout(CommandSource source, Runnable task,
+                                    String errorKey, String timeoutKey) {
+        CommandHelper.runAsyncCommandWithTimeout(task, messages, source, errorKey, timeoutKey);
+    }
+
+    /**
+     * Ensures the database is currently connected before continuing an admin command.
+     */
+    boolean ensureDatabaseConnected(CommandSource source, String operation) {
+        if (databaseManager.isConnected()) {
+            return true;
+        }
+
+        if (logger.isWarnEnabled()) {
+            logger.warn(SECURITY_MARKER, "[DATABASE ERROR] {} failed: database not connected", operation);
+        }
+        sendDatabaseErrorMessage(source);
+        return false;
+    }
+
+    /**
+     * Sends the standard per-player in-progress message.
+     */
+    void sendCommandInProgress(Player player) {
+        player.sendMessage(ValidationUtils.createWarningComponent(messages.get("auth.command.in_progress")));
     }
 
     /**

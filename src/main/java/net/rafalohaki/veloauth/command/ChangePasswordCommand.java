@@ -57,31 +57,41 @@ class ChangePasswordCommand implements SimpleCommand {
         String oldPassword = args[0];
         String newPassword = args[1];
 
-        ValidationUtils.ValidationResult passwordValidation = ValidationUtils.validatePassword(newPassword, ctx.settings());
+        ValidationUtils.ValidationResult passwordValidation =
+                ValidationUtils.validatePassword(newPassword, ctx.settings(), ctx.messages());
         if (!passwordValidation.valid()) {
             player.sendMessage(ValidationUtils.createErrorComponent(passwordValidation.getErrorMessage()));
             return;
         }
 
-        CommandHelper.runAsyncCommand(() -> processPasswordChange(player, oldPassword, newPassword),
-                ctx.messages(), source, ERROR_DATABASE_QUERY);
+        ctx.runAsyncCommand(source, () -> processPasswordChange(player, oldPassword, newPassword),
+                ERROR_DATABASE_QUERY);
     }
 
     private void processPasswordChange(Player player, String oldPassword, String newPassword) {
-        AuthenticationContext authCtx = preparePasswordChange(player);
-        if (authCtx == null) {
+        if (!ctx.tryAcquireCommandLock(player.getUniqueId())) {
+            ctx.sendCommandInProgress(player);
             return;
         }
 
-        if (!verifyOldPassword(authCtx, oldPassword)) {
-            return;
-        }
+        try {
+            AuthenticationContext authCtx = preparePasswordChange(player);
+            if (authCtx == null) {
+                return;
+            }
 
-        if (!updatePassword(authCtx, newPassword)) {
-            return;
-        }
+            if (!verifyOldPassword(authCtx, oldPassword)) {
+                return;
+            }
 
-        finalizePasswordChange(authCtx);
+            if (!updatePassword(authCtx, newPassword)) {
+                return;
+            }
+
+            finalizePasswordChange(authCtx);
+        } finally {
+            ctx.releaseCommandLock(player.getUniqueId());
+        }
     }
 
     private AuthenticationContext preparePasswordChange(Player player) {

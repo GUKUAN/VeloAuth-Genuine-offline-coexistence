@@ -84,12 +84,15 @@ final class YamlParserUtils {
         if (value instanceof Boolean bool) {
             return bool;
         }
-        try {
-            return Boolean.parseBoolean(value.toString());
-        } catch (Exception e) {
-            logger.warn("Invalid boolean value for key '{}': {}, using default: {}", key, value, defaultValue);
-            return defaultValue;
+        String normalized = value.toString().trim();
+        if ("true".equalsIgnoreCase(normalized)) {
+            return true;
         }
+        if ("false".equalsIgnoreCase(normalized)) {
+            return false;
+        }
+        logger.warn("Invalid boolean value for key '{}': {}, using default: {}", key, value, defaultValue);
+        return defaultValue;
     }
 
     static double getDouble(Map<String, Object> map, String key, double defaultValue) {

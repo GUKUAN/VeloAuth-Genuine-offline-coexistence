@@ -30,6 +30,8 @@ import org.slf4j.MarkerFactory;
 
 import jakarta.inject.Inject;
 import java.net.InetAddress;
+import java.net.SocketAddress;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -67,7 +69,7 @@ public class AuthListener {
     private static final Marker AUTH_MARKER = MarkerFactory.getMarker("AUTH");
     private static final Marker SECURITY_MARKER = MarkerFactory.getMarker("SECURITY");
 
-    // M8: Guard against duplicate concurrent PreLogin events for the same username
+    // Guard against duplicate concurrent PreLogin events from the same login source
     private final ConcurrentHashMap<String, Boolean> pendingLogins = new ConcurrentHashMap<>();
 
     private final VeloAuth plugin;
@@ -194,32 +196,48 @@ public class AuthListener {
     @Subscribe(priority = Short.MAX_VALUE)
     public EventTask onPreLogin(PreLoginEvent event) {
         String username = event.getUsername();
+        String pendingLoginKey = createPendingLoginKey(event, username);
         if (logger.isDebugEnabled()) {
             logger.debug("PreLogin: {}", username);
         }
 
-        // M8: Prevent duplicate concurrent PreLogin events for the same username
-        if (pendingLogins.putIfAbsent(username.toLowerCase(), Boolean.TRUE) != null) {
-            logger.warn(SECURITY_MARKER, "[DUPLICATE PRELOGIN] {} - already connecting, denying", username);
+        if (pendingLogins.putIfAbsent(pendingLoginKey, Boolean.TRUE) != null) {
+            logger.warn(SECURITY_MARKER, "[DUPLICATE PRELOGIN] {} from {} - already connecting, denying",
+                    username, pendingLoginKey);
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
                     Component.text(messages.get("connection.already_connecting"), NamedTextColor.RED)));
             return null;
         }
 
         if (!validatePreLoginConditions(event, username)) {
-            pendingLogins.remove(username.toLowerCase());
+            pendingLogins.remove(pendingLoginKey);
             return null;
         }
 
         if (!settings.isPremiumCheckEnabled()) {
             logger.debug("Premium check disabled in config - forcing offline mode for {}", username);
             event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
-            pendingLogins.remove(username.toLowerCase());
+            pendingLogins.remove(pendingLoginKey);
             return null;
         }
 
         return EventTask.resumeWhenComplete(handlePremiumDetectionAsync(event, username)
-                .whenComplete((result, throwable) -> pendingLogins.remove(username.toLowerCase())));
+                .whenComplete((result, throwable) -> pendingLogins.remove(pendingLoginKey)));
+    }
+
+    private String createPendingLoginKey(PreLoginEvent event, String username) {
+        String normalizedUsername = username.toLowerCase(Locale.ROOT);
+        InetAddress address = PlayerAddressUtils.getAddressFromPreLogin(event);
+        if (address != null) {
+            return normalizedUsername + '|' + address.getHostAddress();
+        }
+
+        SocketAddress remoteAddress = event.getConnection() != null ? event.getConnection().getRemoteAddress() : null;
+        if (remoteAddress != null) {
+            return normalizedUsername + '|' + remoteAddress;
+        }
+
+        return normalizedUsername + "|connection:" + System.identityHashCode(event.getConnection());
     }
 
     private boolean validatePreLoginConditions(PreLoginEvent event, String username) {
@@ -267,9 +285,10 @@ public class AuthListener {
 
     private boolean checkBruteForceBlocked(PreLoginEvent event) {
         InetAddress playerAddress = PlayerAddressUtils.getAddressFromPreLogin(event);
-        if (playerAddress != null && preLoginHandler.isBruteForceBlocked(playerAddress)) {
+        if (preLoginHandler.isBruteForceBlocked(playerAddress)) {
             if (logger.isWarnEnabled()) {
-                logger.warn(SECURITY_MARKER, "[BRUTE FORCE BLOCK] IP {} blocked", playerAddress.getHostAddress());
+                String playerIp = playerAddress != null ? playerAddress.getHostAddress() : "unknown";
+                logger.warn(SECURITY_MARKER, "[BRUTE FORCE BLOCK] IP {} blocked", playerIp);
             }
             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(
                     Component.text(messages.get("security.brute_force.blocked"), NamedTextColor.RED)));
@@ -408,9 +427,11 @@ public class AuthListener {
 
         // 1. Check brute force block
         InetAddress playerAddress = PlayerAddressUtils.getPlayerAddress(player);
-        if (playerAddress != null && authCache.isBlocked(playerAddress)) {
-            logger.warn(SECURITY_MARKER, "Blocked connection for player {} - too many failed login attempts",
-                playerName);
+        if (preLoginHandler.isBruteForceBlocked(playerAddress)) {
+            String playerAddressText = playerAddress != null ? playerAddress.getHostAddress() : "unknown";
+            logger.warn(SECURITY_MARKER,
+                    "Blocked connection for player {} from {} - too many failed login attempts",
+                    playerName, playerAddressText);
 
             event.setResult(ComponentResult.denied(
                 Component.text(messages.get("security.brute_force.blocked"), NamedTextColor.RED)));
@@ -515,14 +536,13 @@ public class AuthListener {
     public EventTask onServerPreConnect(ServerPreConnectEvent event) {
         try {
             Player player = event.getPlayer();
-            // NAPRAWIONE: Używamy getOriginalServer() zamiast getTarget()
-            // getOriginalServer() to INPUT field (dokąd gracz chce iść)
             String targetServerName = event.getOriginalServer().getServerInfo().getName();
+            RegisteredServer previousServer = event.getPreviousServer();
 
-                logger.debug("ServerPreConnectEvent for player {} -> server {}",
+            logger.debug("ServerPreConnectEvent for player {} -> server {}",
                     player.getUsername(), targetServerName);
 
-            if (handleFirstConnection(event, player, targetServerName)) {
+            if (handleFirstConnection(event, player, previousServer, targetServerName)) {
                 return null;
             }
 
@@ -541,11 +561,12 @@ public class AuthListener {
         }
     }
 
-    private boolean handleFirstConnection(ServerPreConnectEvent event, Player player, String targetServerName) {
-        // ✅ PIERWSZE POŁĄCZENIE: Gracz nie ma jeszcze currentServer
-        // Velocity próbuje go wysłać na serwer z forced-hosts lub try list
-        // My MUSIMY przekierować na auth server dla ViaVersion compatibility
-        if (player.getCurrentServer().isEmpty()) {
+    private boolean handleFirstConnection(ServerPreConnectEvent event, Player player,
+                                          RegisteredServer previousServer, String targetServerName) {
+        // ServerPreConnectEvent#getPreviousServer() is the stable source of truth for
+        // whether this is an initial connection. Player#getCurrentServer() may be reset
+        // during server kicks before this event finishes processing.
+        if (previousServer == null) {
             String authServerName = settings.getAuthServerName();
             
             // Jeśli cel to już auth server - pozwól
@@ -629,15 +650,19 @@ public class AuthListener {
         }
 
         String playerIp = PlayerAddressUtils.getPlayerIp(player);
-        boolean isAuthorized = authCache.isPlayerAuthorized(player.getUniqueId(), playerIp);
-
-        // DODATKOWA WERYFIKACJA - sprawdź aktywną sesję z walidacją IP
-        boolean hasActiveSession = authCache.hasActiveSession(player.getUniqueId(), player.getUsername(),
-                playerIp);
+        UUID playerUuid = player.getUniqueId();
+        String username = player.getUsername();
 
         // WERYFIKUJ UUID z bazą danych dla maksymalnego bezpieczeństwa - async, no IO thread blocking
         return uuidVerificationHandler.verifyPlayerUuid(player)
                 .thenAccept(uuidMatches -> {
+                    if (!player.isActive()) {
+                        event.setResult(ServerPreConnectEvent.ServerResult.denied());
+                        return;
+                    }
+
+                    boolean isAuthorized = authCache.isPlayerAuthorized(playerUuid, playerIp);
+                    boolean hasActiveSession = authCache.hasActiveSession(playerUuid, username, playerIp);
                     if (!isAuthorized || !hasActiveSession || !uuidMatches) {
                         handleUnauthorizedConnection(event, player, targetServerName, isAuthorized, hasActiveSession, uuidMatches, playerIp);
                     } else {

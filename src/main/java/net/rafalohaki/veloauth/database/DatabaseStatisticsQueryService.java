@@ -40,7 +40,7 @@ final class DatabaseStatisticsQueryService {
     }
 
     CompletableFuture<Integer> getTotalNonPremiumAccounts() {
-        return supplyCount(buildCountQuery(quotedColumn(HASH_COLUMN) + " IS NOT NULL"),
+        return supplyCount(buildCountQuery(hasPasswordHashClause()),
                 "Error counting non-premium accounts");
     }
 
@@ -49,9 +49,19 @@ final class DatabaseStatisticsQueryService {
     }
 
     CompletableFuture<Integer> getTotalPremiumAccounts() {
-        String whereClause = quotedColumn(PREMIUM_UUID_COLUMN) + " IS NOT NULL OR "
-                + quotedColumn(HASH_COLUMN) + " IS NULL";
+        String whereClause = quotedColumn(PREMIUM_UUID_COLUMN) + " IS NOT NULL OR ("
+                + missingPasswordHashClause() + ")";
         return supplyCount(buildCountQuery(whereClause), "Error getting total premium accounts");
+    }
+
+    private String hasPasswordHashClause() {
+        String hashColumn = quotedColumn(HASH_COLUMN);
+        return hashColumn + " IS NOT NULL AND " + hashColumn + " <> ''";
+    }
+
+    private String missingPasswordHashClause() {
+        String hashColumn = quotedColumn(HASH_COLUMN);
+        return hashColumn + " IS NULL OR " + hashColumn + " = ''";
     }
 
     private CompletableFuture<Integer> supplyCount(String sql, String errorMessage) {

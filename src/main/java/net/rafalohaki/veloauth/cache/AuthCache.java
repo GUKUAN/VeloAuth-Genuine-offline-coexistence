@@ -174,11 +174,16 @@ public class AuthCache {
             throw new IllegalArgumentException("UUID and user must not be null");
         }
 
-        if (authorizedPlayers.size() >= maxSize && !authorizedPlayers.containsKey(uuid)) {
-            evictOldestAuthorizedEntryAtomic();
-        }
+        cacheLock.lock();
+        try {
+            if (authorizedPlayers.size() >= maxSize && !authorizedPlayers.containsKey(uuid)) {
+                evictOldestAuthorizedEntryAtomic();
+            }
 
-        authorizedPlayers.put(uuid, user);
+            authorizedPlayers.put(uuid, user);
+        } finally {
+            cacheLock.unlock();
+        }
         if (logger.isDebugEnabled()) {
             logger.debug(messages.get("cache.debug.auth.added"), user.getNickname(), uuid);
         }
@@ -209,7 +214,7 @@ public class AuthCache {
         }
 
         if (!user.isValid(ttlMinutes)) {
-            removeAuthorizedPlayer(uuid);
+            removeAuthorizedPlayerIfMatch(uuid, user);
             cacheMisses.incrementAndGet();
             logCacheAccessMetric("cache.debug.uuid.expired", uuid);
             return null;
@@ -227,12 +232,21 @@ public class AuthCache {
     }
 
     public void removeAuthorizedPlayer(UUID uuid) {
-        if (uuid != null) {
-            CachedAuthUser removed = authorizedPlayers.remove(uuid);
-            if (removed != null && logger.isDebugEnabled()) {
-                logger.debug(messages.get("cache.debug.player.removed"),
-                        removed.getNickname(), uuid);
-            }
+        if (uuid == null) {
+            return;
+        }
+
+        CachedAuthUser removed;
+        cacheLock.lock();
+        try {
+            removed = authorizedPlayers.remove(uuid);
+        } finally {
+            cacheLock.unlock();
+        }
+
+        if (removed != null && logger.isDebugEnabled()) {
+            logger.debug(messages.get("cache.debug.player.removed"),
+                    removed.getNickname(), uuid);
         }
     }
 
@@ -248,14 +262,18 @@ public class AuthCache {
         if (playerUuid == null) {
             return;
         }
-        
-        CachedAuthUser user = authorizedPlayers.get(playerUuid);
-        if (user != null) {
-            authorizedPlayers.remove(playerUuid);
-            if (logger.isDebugEnabled()) {
-                logger.debug("Invalidated cached data for player UUID: {} (nickname: {})", 
-                        playerUuid, user.getNickname());
-            }
+
+        CachedAuthUser removed;
+        cacheLock.lock();
+        try {
+            removed = authorizedPlayers.remove(playerUuid);
+        } finally {
+            cacheLock.unlock();
+        }
+
+        if (removed != null && logger.isDebugEnabled()) {
+            logger.debug("Invalidated cached data for player UUID: {} (nickname: {})",
+                    playerUuid, removed.getNickname());
         }
     }
 
@@ -266,7 +284,13 @@ public class AuthCache {
             return;
         }
 
-        PremiumCacheEntry removed = premiumCache.remove(nickname.toLowerCase());
+        PremiumCacheEntry removed;
+        cacheLock.lock();
+        try {
+            removed = premiumCache.remove(nickname.toLowerCase());
+        } finally {
+            cacheLock.unlock();
+        }
         if (removed != null && logger.isDebugEnabled()) {
             logger.debug(messages.get("cache.debug.premium.removed"),
                     nickname, removed.isPremium());
@@ -279,15 +303,20 @@ public class AuthCache {
         }
 
         String key = nickname.toLowerCase();
-        if (premiumCache.size() >= maxPremiumCache && !premiumCache.containsKey(key)) {
-            evictOldestPremiumEntryAtomic();
-        }
-
         long ttl = (premiumUuid == null)
                 ? TimeUnit.MINUTES.toMillis(NEGATIVE_PREMIUM_TTL_MINUTES)
                 : TimeUnit.HOURS.toMillis(premiumTtlHours);
         PremiumCacheEntry entry = new PremiumCacheEntry(premiumUuid != null, premiumUuid, ttl, premiumRefreshThreshold);
-        premiumCache.put(key, entry);
+        cacheLock.lock();
+        try {
+            if (premiumCache.size() >= maxPremiumCache && !premiumCache.containsKey(key)) {
+                evictOldestPremiumEntryAtomic();
+            }
+
+            premiumCache.put(key, entry);
+        } finally {
+            cacheLock.unlock();
+        }
 
         if (logger.isDebugEnabled()) {
             logger.debug("{} | nickname: {}, premium entry: {}, TTL: {}h, threshold: {}",
@@ -312,9 +341,9 @@ public class AuthCache {
         }
 
         if (entry.isExpired()) {
-            premiumCache.remove(key);
+            removePremiumEntryIfMatch(key, entry);
             if (logger.isDebugEnabled()) {
-                logger.debug("Premium cache entry expired for {} (age: {}ms, TTL: {}ms)", 
+                logger.debug("Premium cache entry expired for {} (age: {}ms, TTL: {}ms)",
                         nickname, entry.getAgeMillis(), entry.getTtlMillis());
             }
             return null;
@@ -409,29 +438,39 @@ public class AuthCache {
     }
 
     private int cleanupAuthorized() {
-        int removed = 0;
-        var iterator = authorizedPlayers.entrySet().iterator();
-        while (iterator.hasNext()) {
-            var entry = iterator.next();
-            if (!entry.getValue().isValid(ttlMinutes)) {
-                iterator.remove();
-                removed++;
+        cacheLock.lock();
+        try {
+            int removed = 0;
+            var iterator = authorizedPlayers.entrySet().iterator();
+            while (iterator.hasNext()) {
+                var entry = iterator.next();
+                if (!entry.getValue().isValid(ttlMinutes)) {
+                    iterator.remove();
+                    removed++;
+                }
             }
+            return removed;
+        } finally {
+            cacheLock.unlock();
         }
-        return removed;
     }
 
     private int cleanupPremium() {
-        int removed = 0;
-        var iterator = premiumCache.entrySet().iterator();
-        while (iterator.hasNext()) {
-            var entry = iterator.next();
-            if (entry.getValue().isExpired()) {
-                iterator.remove();
-                removed++;
+        cacheLock.lock();
+        try {
+            int removed = 0;
+            var iterator = premiumCache.entrySet().iterator();
+            while (iterator.hasNext()) {
+                var entry = iterator.next();
+                if (entry.getValue().isExpired()) {
+                    iterator.remove();
+                    removed++;
+                }
             }
+            return removed;
+        } finally {
+            cacheLock.unlock();
         }
-        return removed;
     }
 
     // ===== Eviction =====
@@ -458,6 +497,24 @@ public class AuthCache {
                 logger.debug("Premium cache LRU eviction: {} (age: {}ms, was premium: {})", 
                         evictedKey, evictedEntry.getAgeMillis(), evictedEntry.isPremium());
             }
+        }
+    }
+
+    private void removeAuthorizedPlayerIfMatch(UUID uuid, CachedAuthUser expectedUser) {
+        cacheLock.lock();
+        try {
+            authorizedPlayers.remove(uuid, expectedUser);
+        } finally {
+            cacheLock.unlock();
+        }
+    }
+
+    private void removePremiumEntryIfMatch(String nickname, PremiumCacheEntry expectedEntry) {
+        cacheLock.lock();
+        try {
+            premiumCache.remove(nickname, expectedEntry);
+        } finally {
+            cacheLock.unlock();
         }
     }
 

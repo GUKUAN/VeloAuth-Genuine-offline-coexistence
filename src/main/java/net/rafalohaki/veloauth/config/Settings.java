@@ -99,7 +99,6 @@ public class Settings {
             if (!Files.exists(configFile)) {
                 logger.debug("Creating default config file: {}", configFile);
                 DefaultConfigGenerator.createDefaultConfig(configFile);
-                return true;
             }
 
             logger.debug("Loading configuration from: {}", configFile);

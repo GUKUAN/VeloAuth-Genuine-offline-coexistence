@@ -169,25 +169,33 @@ class SettingsValidationTest {
     }
 
     @Test
-    void shouldUseDefaultsWhenConfigNotFound() {
+    void shouldUseDefaultsWhenConfigNotFound() throws IOException {
         // Given: No config file exists
+        settings.getPostgreSQLSettings().setSslEnabled(false);
 
         // When: Loading settings without config file
         boolean loaded = settings.load();
+        String generatedConfig = Files.readString(tempDir.resolve("config.yml"));
 
         // Then: Should create default config and load successfully
         assertTrue(loaded, "Should load with default configuration");
         assertTrue(Files.exists(tempDir.resolve("config.yml")), "Should create default config file");
+        assertTrue(settings.getPostgreSQLSettings().isSslEnabled(), "Should reload generated defaults after first creation");
+        assertTrue(generatedConfig.contains("ssl-enabled: true"), "Generated config should document the runtime SSL default");
+        assertTrue(generatedConfig.contains("bcrypt-cost: 10 # BCrypt hashing rounds (10-31)"),
+                "Generated config should document the validated BCrypt range");
+        assertFalse(generatedConfig.contains("postgresql://user:pass@host:5432/database?sslmode=disable"),
+                "Generated config should not advertise unsupported connection-url query parameters");
     }
 
-        @Test
-        void shouldLoadFloodgateSettingsWithCustomPrefix() {
+    @Test
+    void shouldLoadFloodgateSettingsWithCustomPrefix() {
         String config = """
-                                floodgate:
-                                    enabled: false
-                                    username-prefix: "+"
-                                    bypass-auth-server: false
-                                """;
+                floodgate:
+                  enabled: false
+                  username-prefix: "+"
+                  bypass-auth-server: false
+                """;
 
         Path configFile = tempDir.resolve("config.yml");
         writeConfigFile(configFile, config);
@@ -198,16 +206,16 @@ class SettingsValidationTest {
         assertFalse(settings.isFloodgateIntegrationEnabled(), "Floodgate integration should be disabled");
         assertEquals("+", settings.getFloodgateUsernamePrefix(), "Custom Floodgate prefix should be loaded");
         assertFalse(settings.isFloodgateBypassAuthServerEnabled(), "Floodgate auth bypass should be disabled");
-        }
+    }
 
-        @Test
-        void shouldRejectFloodgatePrefixWithWhitespace() {
+    @Test
+    void shouldRejectFloodgatePrefixWithWhitespace() {
         String invalidConfig = """
-                                floodgate:
-                                    enabled: true
-                                    username-prefix: "bed rock"
-                                    bypass-auth-server: true
-                                """;
+                floodgate:
+                  enabled: true
+                  username-prefix: "bed rock"
+                  bypass-auth-server: true
+                """;
 
         Path configFile = tempDir.resolve("config.yml");
         writeConfigFile(configFile, invalidConfig);
@@ -220,6 +228,78 @@ class SettingsValidationTest {
 
         assertTrue(exception.getMessage().contains("whitespace"),
                 "Error message should mention whitespace validation");
+    }
+
+    @Test
+    void shouldFallbackToDefaultsWhenBooleanValuesAreInvalid() {
+        String config = """
+                debug-enabled: "not-a-boolean"
+                premium:
+                  check-enabled: "not-a-boolean"
+                database:
+                  postgresql:
+                    ssl-enabled: "not-a-boolean"
+                """;
+
+        Path configFile = tempDir.resolve("config.yml");
+        writeConfigFile(configFile, config);
+
+        boolean loaded = settings.load();
+
+        assertTrue(loaded, "Should fall back to defaults for invalid boolean values");
+        assertFalse(settings.isDebugEnabled(), "Invalid debug-enabled should fall back to the default false");
+        assertTrue(settings.isPremiumCheckEnabled(), "Invalid premium.check-enabled should fall back to the default true");
+        assertTrue(settings.getPostgreSQLSettings().isSslEnabled(),
+                "Invalid database.postgresql.ssl-enabled should fall back to the default true");
+    }
+
+    @ParameterizedTest(name = "shouldReject session-timeout-minutes={0}")
+    @CsvSource({
+        "0",
+        "-1"
+    })
+    void shouldRejectNonPositiveSessionTimeoutMinutes(int sessionTimeoutMinutes) {
+        String invalidConfig = String.format("""
+                cache:
+                  session-timeout-minutes: %d
+                """, sessionTimeoutMinutes);
+
+        Path configFile = tempDir.resolve("config.yml");
+        writeConfigFile(configFile, invalidConfig);
+
+        IllegalArgumentException exception = assertThrows(
+            IllegalArgumentException.class,
+            () -> settings.load(),
+            "Should reject non-positive session timeout values"
+        );
+
+        assertTrue(exception.getMessage().contains("Session timeout"),
+                "Error message should mention session timeout validation");
+    }
+
+    @Test
+    void shouldIgnoreConnectionUrlQueryParametersInsteadOfCorruptingDatabaseName() {
+        String config = """
+                database:
+                  storage-type: POSTGRESQL
+                  connection-url: "postgresql://user:pass@db.example.com:5432/veloauth?sslmode=disable"
+                  connection-parameters: "?prepareThreshold=0"
+                """;
+
+        Path configFile = tempDir.resolve("config.yml");
+        writeConfigFile(configFile, config);
+
+        boolean loaded = settings.load();
+
+        assertTrue(loaded, "Should load connection-url values even when the URL includes an unsupported query string");
+        assertEquals("POSTGRESQL", settings.getDatabaseStorageType(), "Should detect database type from connection-url");
+        assertEquals("db.example.com", settings.getDatabaseHostname(), "Should parse hostname from connection-url");
+        assertEquals(5432, settings.getDatabasePort(), "Should parse port from connection-url");
+        assertEquals("veloauth", settings.getDatabaseName(), "Should strip the query string from the parsed database name");
+        assertEquals("user", settings.getDatabaseUser(), "Should parse database user from connection-url");
+        assertEquals("pass", settings.getDatabasePassword(), "Should parse database password from connection-url");
+        assertEquals("?prepareThreshold=0", settings.getDatabaseConnectionParameters(),
+                "Unsupported query parameters in connection-url should not override explicit connection-parameters");
     }
 
     /**

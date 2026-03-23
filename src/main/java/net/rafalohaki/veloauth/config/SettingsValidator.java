@@ -53,6 +53,9 @@ public final class SettingsValidator {
         if (settings.getCacheCleanupIntervalMinutes() <= 0) {
             throw new IllegalArgumentException("Cache cleanup interval must be > 0");
         }
+        if (settings.getSessionTimeoutMinutes() <= 0) {
+            throw new IllegalArgumentException("Session timeout minutes must be > 0");
+        }
         if (settings.getPremiumTtlHours() <= 0) {
             throw new IllegalArgumentException("Premium TTL hours must be > 0");
         }

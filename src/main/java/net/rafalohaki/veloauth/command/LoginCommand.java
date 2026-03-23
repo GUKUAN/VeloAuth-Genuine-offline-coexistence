@@ -47,25 +47,24 @@ class LoginCommand implements SimpleCommand {
     public void execute(Invocation invocation) {
         CommandSource source = invocation.source();
         String[] args = invocation.arguments();
+        Player player = CommandHelper.validatePlayerSource(source, ctx.messages());
+        if (player == null) {
+            return;
+        }
 
         if (args.length != 1) {
-            source.sendMessage(ctx.sm().usageLogin());
+            player.sendMessage(ctx.sm().usageLogin());
             return;
         }
 
         String password = args[0];
 
-        CommandHelper.runAsyncCommand(() -> processLogin(source, password),
-                ctx.messages(), source, ERROR_DATABASE_QUERY);
+        ctx.runAsyncCommand(source, () -> processLogin(player, password), ERROR_DATABASE_QUERY);
     }
 
-    private void processLogin(CommandSource source, String password) {
-        Player player = (Player) source;
-
+    private void processLogin(Player player, String password) {
         if (!ctx.tryAcquireCommandLock(player.getUniqueId())) {
-            player.sendMessage(net.kyori.adventure.text.Component.text(
-                    ctx.messages().get("auth.command.in_progress"),
-                    net.kyori.adventure.text.format.NamedTextColor.YELLOW));
+            ctx.sendCommandInProgress(player);
             return;
         }
         try {
@@ -75,7 +74,7 @@ class LoginCommand implements SimpleCommand {
                 return;
             }
 
-            AuthenticationContext authContext = ctx.validateAndAuthenticatePlayer(source, "login");
+            AuthenticationContext authContext = ctx.validateAndAuthenticatePlayer(player, "login");
             if (authContext == null) {
                 return;
             }
@@ -116,8 +115,9 @@ class LoginCommand implements SimpleCommand {
                 return;
             }
 
-            authContext.player().sendMessage(ctx.sm().loginSuccess());
-            PostAuthFlow.execute(ctx, authContext, authContext.registeredPlayer(), "logged in");
+            if (PostAuthFlow.execute(ctx, authContext, authContext.registeredPlayer(), "logged in")) {
+                authContext.player().sendMessage(ctx.sm().loginSuccess());
+            }
 
         } catch (java.util.concurrent.CompletionException e) {
             if (ctx.logger().isErrorEnabled()) {

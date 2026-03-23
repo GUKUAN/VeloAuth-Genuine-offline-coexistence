@@ -8,18 +8,12 @@ import net.kyori.adventure.text.format.NamedTextColor;
 import net.rafalohaki.veloauth.VeloAuth;
 import org.slf4j.Logger;
 
-import java.util.concurrent.TimeUnit;
-
 /**
  * Startup queue for connections arriving before VeloAuth finishes initialization.
  * Instead of kicking players, holds their PreLogin event until the plugin is ready,
  * then allows normal processing to continue.
- * <p>
- * Timeout: 30 seconds. If init takes longer, the player is denied with a retry message.
  */
 public class EarlyLoginBlocker {
-
-    private static final long INIT_WAIT_TIMEOUT_SECONDS = 30;
 
     private final VeloAuth plugin;
     private final Logger logger;
@@ -40,10 +34,9 @@ public class EarlyLoginBlocker {
 
         return EventTask.resumeWhenComplete(
                 plugin.getInitializationFuture()
-                        .orTimeout(INIT_WAIT_TIMEOUT_SECONDS, TimeUnit.SECONDS)
                         .thenRun(() -> logger.info("STARTUP QUEUE: VeloAuth initialized, releasing {}", username))
                         .exceptionally(throwable -> {
-                            logger.warn("STARTUP QUEUE: Timed out or init failed for {} - denying connection",
+                            logger.warn("STARTUP QUEUE: Initialization failed or shutdown started for {} - denying connection",
                                     username);
                             // i18n not available here — Messages is initialized after EarlyLoginBlocker registers
                             event.setResult(PreLoginEvent.PreLoginComponentResult.denied(

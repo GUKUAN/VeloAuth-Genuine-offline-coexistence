@@ -8,6 +8,7 @@ import org.slf4j.MarkerFactory;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Manages active player sessions with anti-hijacking protection.
@@ -19,12 +20,14 @@ class SessionManager {
     private static final Marker SECURITY_MARKER = MarkerFactory.getMarker("SECURITY");
 
     private final ConcurrentHashMap<UUID, AuthCache.ActiveSession> activeSessions;
+    private final ReentrantLock sessionLock;
     private final int maxSessions;
     private final int sessionTimeoutMinutes;
     private final Messages messages;
 
     SessionManager(int maxSessions, int sessionTimeoutMinutes, Messages messages) {
         this.activeSessions = new ConcurrentHashMap<>();
+        this.sessionLock = new ReentrantLock();
         this.maxSessions = maxSessions;
         this.sessionTimeoutMinutes = sessionTimeoutMinutes;
         this.messages = messages;
@@ -38,12 +41,17 @@ class SessionManager {
             return;
         }
 
-        if (activeSessions.size() >= maxSessions && !activeSessions.containsKey(uuid)) {
-            evictOldestSessionAtomic();
-        }
+        sessionLock.lock();
+        try {
+            if (activeSessions.size() >= maxSessions && !activeSessions.containsKey(uuid)) {
+                evictOldestSessionAtomic();
+            }
 
-        AuthCache.ActiveSession session = new AuthCache.ActiveSession(uuid, nickname, ip);
-        activeSessions.put(uuid, session);
+            AuthCache.ActiveSession session = new AuthCache.ActiveSession(uuid, nickname, ip);
+            activeSessions.put(uuid, session);
+        } finally {
+            sessionLock.unlock();
+        }
         if (logger.isDebugEnabled()) {
             logger.debug(messages.get("cache.debug.session.started"), nickname, uuid, ip);
         }
@@ -57,7 +65,13 @@ class SessionManager {
             return;
         }
 
-        AuthCache.ActiveSession removed = activeSessions.remove(uuid);
+        AuthCache.ActiveSession removed;
+        sessionLock.lock();
+        try {
+            removed = activeSessions.remove(uuid);
+        } finally {
+            sessionLock.unlock();
+        }
         if (removed != null && logger.isDebugEnabled()) {
             logger.debug(messages.get("cache.debug.session.ended"), removed.getNickname(), uuid);
         }
@@ -70,18 +84,28 @@ class SessionManager {
         if (uuid == null || nickname == null || currentIp == null) {
             return false;
         }
-        AuthCache.ActiveSession session = activeSessions.get(uuid);
-        if (session == null) {
-            return false;
+
+        sessionLock.lock();
+        try {
+            AuthCache.ActiveSession session = activeSessions.get(uuid);
+            if (session == null) {
+                return false;
+            }
+            if (!session.isActive(sessionTimeoutMinutes)) {
+                activeSessions.remove(uuid, session);
+                return false;
+            }
+            if (isNicknameMismatch(session, nickname, uuid)) {
+                return false;
+            }
+            if (isIpMismatch(session, currentIp, uuid)) {
+                return false;
+            }
+            session.updateActivity();
+            return true;
+        } finally {
+            sessionLock.unlock();
         }
-        if (isNicknameMismatch(session, nickname, uuid)) {
-            return false;
-        }
-        if (isIpMismatch(session, currentIp, uuid)) {
-            return false;
-        }
-        session.updateActivity();
-        return true;
     }
 
     private boolean isNicknameMismatch(AuthCache.ActiveSession session, String nickname, UUID uuid) {
@@ -91,7 +115,7 @@ class SessionManager {
         if (logger.isWarnEnabled()) {
             logger.warn(SECURITY_MARKER, messages.get("security.session.hijack"), uuid, session.getNickname(), nickname);
         }
-        activeSessions.remove(uuid);
+        activeSessions.remove(uuid, session);
         return true;
     }
 
@@ -102,7 +126,7 @@ class SessionManager {
         if (logger.isWarnEnabled()) {
             logger.warn(SECURITY_MARKER, messages.get("security.session.ip.mismatch"), uuid, session.getIp(), currentIp);
         }
-        activeSessions.remove(uuid);
+        activeSessions.remove(uuid, session);
         return true;
     }
 
@@ -116,11 +140,21 @@ class SessionManager {
     }
 
     int size() {
-        return activeSessions.size();
+        sessionLock.lock();
+        try {
+            return activeSessions.size();
+        } finally {
+            sessionLock.unlock();
+        }
     }
 
     void clear() {
-        activeSessions.clear();
+        sessionLock.lock();
+        try {
+            activeSessions.clear();
+        } finally {
+            sessionLock.unlock();
+        }
     }
 
     /**
@@ -129,15 +163,20 @@ class SessionManager {
      * @return number of removed sessions
      */
     int cleanupExpired() {
-        int removed = 0;
-        var iterator = activeSessions.entrySet().iterator();
-        while (iterator.hasNext()) {
-            var entry = iterator.next();
-            if (!entry.getValue().isActive(sessionTimeoutMinutes)) {
-                iterator.remove();
-                removed++;
+        sessionLock.lock();
+        try {
+            int removed = 0;
+            var iterator = activeSessions.entrySet().iterator();
+            while (iterator.hasNext()) {
+                var entry = iterator.next();
+                if (!entry.getValue().isActive(sessionTimeoutMinutes)) {
+                    iterator.remove();
+                    removed++;
+                }
             }
+            return removed;
+        } finally {
+            sessionLock.unlock();
         }
-        return removed;
     }
 }

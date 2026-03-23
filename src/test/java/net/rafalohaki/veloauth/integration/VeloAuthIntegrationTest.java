@@ -127,6 +127,21 @@ class VeloAuthIntegrationTest {
     }
 
     @Test
+    void testCommandUnregistration_allAliasesAreUnregistered() {
+        commandHandler.unregisterCommands();
+
+        verify(commandManager, times(8)).unregister(anyString());
+        verify(commandManager).unregister("login");
+        verify(commandManager).unregister("log");
+        verify(commandManager).unregister("l");
+        verify(commandManager).unregister("register");
+        verify(commandManager).unregister("reg");
+        verify(commandManager).unregister("changepassword");
+        verify(commandManager).unregister("unregister");
+        verify(commandManager).unregister("vauth");
+    }
+
+    @Test
     void testSystemInitialization_completeFlow_shouldWork() {
         // Test: Complete system initialization using stub
         ((TestDatabaseManager) databaseManager).setInitResult(CompletableFuture.completedFuture(true));
@@ -259,5 +274,20 @@ class VeloAuthIntegrationTest {
             assertTrue(debugEnabled, "Debug setting should be accessible");
             assertEquals("auth", authServerName, "Auth server should be configurable");
         });
+    }
+
+    @Test
+    void testFinalizeInitialization_shutdownStarted_shouldNotMarkPluginInitialized() throws Exception {
+        java.lang.reflect.Field shutdownField = VeloAuth.class.getDeclaredField("shutdownStarted");
+        shutdownField.setAccessible(true);
+        shutdownField.set(plugin, true);
+
+        java.lang.reflect.Method finalizeMethod = VeloAuth.class.getDeclaredMethod("finalizeInitialization", long.class);
+        finalizeMethod.setAccessible(true);
+
+        assertDoesNotThrow(() -> finalizeMethod.invoke(plugin, 25L));
+        assertFalse(plugin.isInitialized(), "Initialization must not flip back to ready after shutdown started");
+        assertFalse(plugin.getInitializationFuture().isDone(),
+                "Initialization future should not complete normally after shutdown has started");
     }
 }

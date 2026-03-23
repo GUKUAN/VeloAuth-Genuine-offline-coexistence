@@ -19,7 +19,9 @@ import org.slf4j.Logger;
 public class CommandHandler {
 
     private static final String COMMAND_LOGIN = "login";
+    private static final String[] COMMAND_LOGIN_ALIASES = {"log", "l"};
     private static final String COMMAND_REGISTER = "register";
+    private static final String[] COMMAND_REGISTER_ALIASES = {"reg"};
     @SuppressWarnings("java:S2068") // Not a password - this is a command name constant
     private static final String COMMAND_CHANGE_PASSWORD = "changepassword"; // NOSONAR
     private static final String COMMAND_UNREGISTER = "unregister";
@@ -53,8 +55,8 @@ public class CommandHandler {
     public void registerCommands() {
         var commandManager = plugin.getServer().getCommandManager();
 
-        commandManager.register(commandManager.metaBuilder(COMMAND_LOGIN).aliases("log", "l").build(), new LoginCommand(ctx));
-        commandManager.register(commandManager.metaBuilder(COMMAND_REGISTER).aliases("reg").build(), new RegisterCommand(ctx));
+        commandManager.register(commandManager.metaBuilder(COMMAND_LOGIN).aliases(COMMAND_LOGIN_ALIASES).build(), new LoginCommand(ctx));
+        commandManager.register(commandManager.metaBuilder(COMMAND_REGISTER).aliases(COMMAND_REGISTER_ALIASES).build(), new RegisterCommand(ctx));
         commandManager.register(commandManager.metaBuilder(COMMAND_CHANGE_PASSWORD).build(), new ChangePasswordCommand(ctx));
 
         commandManager.register(commandManager.metaBuilder(COMMAND_UNREGISTER).build(), new UnregisterCommand(ctx));
@@ -71,14 +73,22 @@ public class CommandHandler {
     public void unregisterCommands() {
         var commandManager = plugin.getServer().getCommandManager();
 
-        commandManager.unregister(COMMAND_LOGIN);
-        commandManager.unregister(COMMAND_REGISTER);
-        commandManager.unregister(COMMAND_CHANGE_PASSWORD);
-        commandManager.unregister(COMMAND_UNREGISTER);
-        commandManager.unregister(COMMAND_VAUTH);
+        unregisterCommandAliases(commandManager, COMMAND_LOGIN, COMMAND_LOGIN_ALIASES);
+        unregisterCommandAliases(commandManager, COMMAND_REGISTER, COMMAND_REGISTER_ALIASES);
+        unregisterCommandAliases(commandManager, COMMAND_CHANGE_PASSWORD);
+        unregisterCommandAliases(commandManager, COMMAND_UNREGISTER);
+        unregisterCommandAliases(commandManager, COMMAND_VAUTH);
 
         if (logger.isDebugEnabled()) {
             logger.debug(messages.get("admin.commands_unregistered"));
+        }
+    }
+
+    private void unregisterCommandAliases(com.velocitypowered.api.command.CommandManager commandManager,
+                                          String primaryAlias, String... aliases) {
+        commandManager.unregister(primaryAlias);
+        for (String alias : aliases) {
+            commandManager.unregister(alias);
         }
     }
 }
