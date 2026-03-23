@@ -539,6 +539,15 @@ public class AuthListener {
 
     private boolean handleAuthServerConnection(ServerPreConnectEvent event, Player player, String targetServerName) {
         if (targetServerName.equals(settings.getAuthServerName())) {
+            if (player.isOnlineMode()) {
+                refreshPremiumAuthorization(player);
+                logger.debug("Premium player {} requested auth server - redirecting to backend",
+                        player.getUsername());
+                event.setResult(ServerPreConnectEvent.ServerResult.denied());
+                connectionManager.autoTransferFromAuthServerToBackend(player);
+                return true;
+            }
+
             // DODATKOWA WERYFIKACJA - sprawdź czy gracz nie jest już autoryzowany
             // Jeśli jest autoryzowany, nie powinien iść na auth server
             String playerIp = PlayerAddressUtils.getPlayerIp(player);
@@ -560,6 +569,13 @@ public class AuthListener {
     private CompletableFuture<Void> verifyBackendConnectionAsync(ServerPreConnectEvent event, Player player, String targetServerName) {
         if (isBedrockPlayer(player)) {
             logger.info("[FLOODGATE] Bedrock player {} -> {} (skipping auth server)",
+                    player.getUsername(), targetServerName);
+            return CompletableFuture.completedFuture(null);
+        }
+
+        if (player.isOnlineMode()) {
+            refreshPremiumAuthorization(player);
+            logger.debug("Premium player {} heading to {} - refreshed premium authorization",
                     player.getUsername(), targetServerName);
             return CompletableFuture.completedFuture(null);
         }
@@ -647,6 +663,12 @@ public class AuthListener {
             logger.debug(AUTH_MARKER, "ServerConnected to auth server: {}", player.getUsername());
         }
 
+        if (player.isOnlineMode()) {
+            refreshPremiumAuthorization(player);
+            triggerAutoTransfer(player);
+            return;
+        }
+
         String playerIp = PlayerAddressUtils.getPlayerIp(player);
         if (authCache.isPlayerAuthorized(player.getUniqueId(), playerIp)) {
             triggerAutoTransfer(player);
@@ -687,6 +709,10 @@ public class AuthListener {
         } else {
             player.sendMessage(Component.text(messages.get("auth.first_time"), NamedTextColor.AQUA));
         }
+    }
+
+    private void refreshPremiumAuthorization(Player player) {
+        postLoginHandler.handlePremiumPlayer(player, PlayerAddressUtils.getPlayerIp(player));
     }
 
 

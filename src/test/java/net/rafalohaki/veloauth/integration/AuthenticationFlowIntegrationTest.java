@@ -24,8 +24,11 @@ import org.mockito.quality.Strictness;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+
+import com.velocitypowered.api.proxy.server.RegisteredServer;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -33,6 +36,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -578,6 +583,86 @@ class AuthenticationFlowIntegrationTest {
                 "Offline player with DB error should still use forceOfflineMode - it's safe for them");
     }
 
+    @Test
+    void testPremiumPlayer_backendTransferWithoutCachedSession_shouldRefreshAuthorization() {
+        String username = "PremiumServerSwitch";
+        UUID premiumUuid = UUID.randomUUID();
+        String playerIp = "192.168.1.105";
+        authCache.addPremiumPlayer(username, premiumUuid);
+
+        ConnectionManager connectionManager = mock(ConnectionManager.class);
+        PostLoginHandler plHandler = new PostLoginHandler(authCache, databaseManager, messages, logger);
+        AuthListener authListener = new AuthListener(
+                plugin, authCache, settings, preLoginHandler, plHandler,
+                connectionManager, databaseManager, messages);
+
+        Player player = mock(Player.class);
+        when(player.getUsername()).thenReturn(username);
+        when(player.getUniqueId()).thenReturn(premiumUuid);
+        when(player.isOnlineMode()).thenReturn(true);
+        when(player.getRemoteAddress()).thenReturn(
+                InetSocketAddress.createUnresolved(playerIp, 25565));
+        when(player.getCurrentServer()).thenReturn(Optional.of(mock(
+                com.velocitypowered.api.proxy.ServerConnection.class)));
+
+        RegisteredServer backendServer = mock(RegisteredServer.class);
+        when(backendServer.getServerInfo()).thenReturn(
+                new com.velocitypowered.api.proxy.server.ServerInfo(
+                        "survival", InetSocketAddress.createUnresolved("127.0.0.1", 25566)));
+
+        com.velocitypowered.api.event.player.ServerPreConnectEvent event =
+                mock(com.velocitypowered.api.event.player.ServerPreConnectEvent.class);
+        when(event.getPlayer()).thenReturn(player);
+        when(event.getOriginalServer()).thenReturn(backendServer);
+
+        awaitEventTask(authListener.onServerPreConnect(event));
+
+        assertTrue(authCache.isPlayerAuthorized(premiumUuid, playerIp),
+                "Premium player should be re-authorized during backend switch");
+        assertTrue(authCache.hasActiveSession(premiumUuid, username, playerIp),
+                "Premium player should regain an active session during backend switch");
+        verify(event, never()).setResult(any());
+    }
+
+    @Test
+    void testPremiumPlayer_sentToAuthServerWithoutCachedSession_shouldAutoTransferBack() {
+        String username = "PremiumFallback";
+        UUID premiumUuid = UUID.randomUUID();
+        String playerIp = "192.168.1.106";
+        authCache.addPremiumPlayer(username, premiumUuid);
+
+        ConnectionManager connectionManager = mock(ConnectionManager.class);
+        PostLoginHandler plHandler = new PostLoginHandler(authCache, databaseManager, messages, logger);
+        AuthListener authListener = new AuthListener(
+                plugin, authCache, settings, preLoginHandler, plHandler,
+                connectionManager, databaseManager, messages);
+
+        Player player = mock(Player.class);
+        when(player.getUsername()).thenReturn(username);
+        when(player.getUniqueId()).thenReturn(premiumUuid);
+        when(player.isOnlineMode()).thenReturn(true);
+        when(player.getRemoteAddress()).thenReturn(
+                InetSocketAddress.createUnresolved(playerIp, 25565));
+
+        RegisteredServer authServer = mock(RegisteredServer.class);
+        when(authServer.getServerInfo()).thenReturn(
+                new com.velocitypowered.api.proxy.server.ServerInfo(
+                        settings.getAuthServerName(), InetSocketAddress.createUnresolved("127.0.0.1", 25565)));
+
+        com.velocitypowered.api.event.player.ServerConnectedEvent event =
+                mock(com.velocitypowered.api.event.player.ServerConnectedEvent.class);
+        when(event.getPlayer()).thenReturn(player);
+        when(event.getServer()).thenReturn(authServer);
+
+        authListener.onServerConnected(event);
+
+        assertTrue(authCache.isPlayerAuthorized(premiumUuid, playerIp),
+                "Premium player should be re-authorized after auth-server fallback");
+        assertTrue(authCache.hasActiveSession(premiumUuid, username, playerIp),
+                "Premium player should regain an active session after auth-server fallback");
+        verify(connectionManager).autoTransferFromAuthServerToBackend(player);
+    }
+
     private void setPluginInitialized(boolean value) throws Exception {
         java.lang.reflect.Field field = net.rafalohaki.veloauth.VeloAuth.class.getDeclaredField("initialized");
         field.setAccessible(true);
@@ -585,7 +670,10 @@ class AuthenticationFlowIntegrationTest {
     }
 
     private void awaitPreLoginEvent(AuthListener authListener, PreLoginEvent event) {
-        com.velocitypowered.api.event.EventTask task = authListener.onPreLogin(event);
+        awaitEventTask(authListener.onPreLogin(event));
+    }
+
+    private void awaitEventTask(com.velocitypowered.api.event.EventTask task) {
         if (task != null) {
             try {
                 java.lang.reflect.Field futureField = task.getClass().getDeclaredField("future");
