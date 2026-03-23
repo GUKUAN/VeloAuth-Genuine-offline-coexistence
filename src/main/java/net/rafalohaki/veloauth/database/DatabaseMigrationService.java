@@ -220,7 +220,7 @@ public class DatabaseMigrationService {
             DatabaseConnection connection = null;
             try {
                 connection = connectionSource.getReadWriteConnection(null);
-                connection.executeStatement(sql, 0);
+                connection.executeStatement(sql, DatabaseConnection.DEFAULT_RESULT_FLAGS);
             } finally {
                 if (connection != null) {
                     connectionSource.releaseConnection(connection);
