@@ -92,7 +92,10 @@ final class JdbcAuthDao {
                 loginDateColumn,
                 premiumUuidColumn,
                 totpTokenColumn,
-                issuedTimeColumn) + " FROM " + authTable + WHERE_CLAUSE + lowercaseNicknameColumn + " = ?";
+                issuedTimeColumn,
+                column(COL_CONFLICT_MODE),
+                column(COL_CONFLICT_TIMESTAMP),
+                column(COL_ORIGINAL_NICKNAME)) + " FROM " + authTable + WHERE_CLAUSE + lowercaseNicknameColumn + " = ?";
 
         this.insertPlayerSql = "INSERT INTO " + authTable + " (" + joinColumns(
                 lowercaseNicknameColumn,
@@ -105,7 +108,10 @@ final class JdbcAuthDao {
                 loginDateColumn,
                 premiumUuidColumn,
                 totpTokenColumn,
-                issuedTimeColumn) + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                issuedTimeColumn,
+                column(COL_CONFLICT_MODE),
+                column(COL_CONFLICT_TIMESTAMP),
+                column(COL_ORIGINAL_NICKNAME)) + ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 
         this.updatePlayerSql = "UPDATE " + authTable + " SET " +
                 nicknameColumn + COMMA_SPACE_EQUALS_QUESTION +
@@ -117,7 +123,10 @@ final class JdbcAuthDao {
                 loginDateColumn + COMMA_SPACE_EQUALS_QUESTION +
                 premiumUuidColumn + COMMA_SPACE_EQUALS_QUESTION +
                 totpTokenColumn + COMMA_SPACE_EQUALS_QUESTION +
-                issuedTimeColumn + " = ?" + WHERE_CLAUSE + lowercaseNicknameColumn + " = ?";
+                issuedTimeColumn + COMMA_SPACE_EQUALS_QUESTION +
+                column(COL_CONFLICT_MODE) + COMMA_SPACE_EQUALS_QUESTION +
+                column(COL_CONFLICT_TIMESTAMP) + COMMA_SPACE_EQUALS_QUESTION +
+                column(COL_ORIGINAL_NICKNAME) + " = ?" + WHERE_CLAUSE + lowercaseNicknameColumn + " = ?";
 
         this.deletePlayerSql = "DELETE FROM " + authTable + WHERE_CLAUSE + lowercaseNicknameColumn + " = ?";
     }
@@ -132,7 +141,7 @@ final class JdbcAuthDao {
                 if (!resultSet.next()) {
                     return null;
                 }
-                return mapPlayer(resultSet);
+                return mapPlayerWithConflict(resultSet);
             }
         }
     }
@@ -269,6 +278,9 @@ final class JdbcAuthDao {
         statement.setString(idx++, player.getPremiumUuid());
         statement.setString(idx++, player.getTotpToken());
         statement.setLong(idx++, player.getIssuedTime());
+        statement.setBoolean(idx++, player.getConflictMode());
+        statement.setLong(idx++, player.getConflictTimestamp());
+        statement.setString(idx++, player.getOriginalNickname());
         return idx;
     }
 
