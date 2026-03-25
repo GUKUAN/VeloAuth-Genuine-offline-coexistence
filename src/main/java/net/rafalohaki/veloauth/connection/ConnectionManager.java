@@ -368,8 +368,8 @@ public class ConnectionManager {
     private boolean handleFailedTransfer(Player player, RegisteredServer targetServer, String serverName,
                                         int attempts, com.velocitypowered.api.proxy.ConnectionRequestBuilder.Result result) {
         if (logger.isWarnEnabled()) {
-            logger.warn("Failed to transfer player {} to server {}: {}",
-                    player.getUsername(), serverName,
+            logger.warn("Failed to transfer player {} to server {} (Status: {}): {}",
+                    player.getUsername(), serverName, result.getStatus(),
                     result.getReasonComponent().orElse(createUnknownErrorComponent()));
         }
 
