@@ -59,7 +59,7 @@ public class Settings {
     private String authServerName = "limbo";
     private int authServerTimeoutSeconds = 300;
     // Connection settings
-    private int connectionTimeoutSeconds = 20;
+    private int connectionTimeoutSeconds = 30;
     // Security settings
     private int bcryptCost = 10;
     private int bruteForceMaxAttempts = 5;

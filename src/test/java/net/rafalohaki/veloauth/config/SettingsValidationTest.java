@@ -182,7 +182,8 @@ class SettingsValidationTest {
         assertTrue(Files.exists(tempDir.resolve("config.yml")), "Should create default config file");
         assertTrue(settings.getPostgreSQLSettings().isSslEnabled(), "Should reload generated defaults after first creation");
         assertTrue(generatedConfig.contains("ssl-enabled: true"), "Generated config should document the runtime SSL default");
-        assertTrue(generatedConfig.contains("bcrypt-cost: 10 # BCrypt hashing rounds (10-31)"),
+        assertTrue(generatedConfig.contains("# BCrypt hashing rounds (10-31)") &&
+                        generatedConfig.contains("bcrypt-cost: 10"),
                 "Generated config should document the validated BCrypt range");
         assertFalse(generatedConfig.contains("postgresql://user:pass@host:5432/database?sslmode=disable"),
                 "Generated config should not advertise unsupported connection-url query parameters");
