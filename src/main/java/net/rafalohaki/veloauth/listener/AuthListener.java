@@ -351,13 +351,13 @@ public class AuthListener {
 
         RegisteredPlayer existingPlayer = dbResult.getValue();
 
-        if (result.premium()) {
-            setPremiumLoginMode(event, true);
+        if (existingPlayer != null) {
+            event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
             return;
         }
 
-        if (existingPlayer != null) {
-            event.setResult(PreLoginEvent.PreLoginComponentResult.forceOfflineMode());
+        if (result.premium()) {
+            setPremiumLoginMode(event, true);
             return;
         }
 
