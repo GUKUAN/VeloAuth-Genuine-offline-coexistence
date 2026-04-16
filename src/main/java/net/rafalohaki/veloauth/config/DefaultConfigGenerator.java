@@ -1,0 +1,220 @@
+package net.rafalohaki.veloauth.config;
+
+import net.rafalohaki.veloauth.i18n.BuiltInLanguages;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+
+/**
+ * Generates default configuration files for VeloAuth.
+ * Extracted from Settings for single-responsibility.
+ */
+final class DefaultConfigGenerator {
+
+    private static final Logger logger = LoggerFactory.getLogger(DefaultConfigGenerator.class);
+    private static final String BUILT_IN_LANGUAGE_CODES_PLACEHOLDER = "__BUILT_IN_LANGUAGE_CODES__";
+
+    private DefaultConfigGenerator() {}
+
+    /**
+     * Creates the default config.yml file if it doesn't exist.
+     */
+    static void createDefaultConfig(Path configFile) throws IOException {
+        String defaultConfig = String.join("\n",
+                LANGUAGE_SECTION,
+                DEBUG_SECTION,
+                DATABASE_SECTION,
+                CACHE_SECTION,
+                AUTH_SERVER_SECTION,
+                CONNECTION_SECTION,
+                SECURITY_SECTION,
+                PREMIUM_SECTION,
+                FLOODGATE_SECTION,
+                ALERTS_SECTION,
+                "" // trailing newline
+        ).replace(BUILT_IN_LANGUAGE_CODES_PLACEHOLDER, BuiltInLanguages.quotedCodeList());
+
+        Files.writeString(configFile, defaultConfig);
+        logger.info("Utworzono domyślny plik konfiguracji");
+    }
+
+    private static final String LANGUAGE_SECTION = """
+                # VeloAuth Configuration
+                # Complete Velocity Authentication Plugin
+                
+                # Language configuration (built-in languages listed below; custom languages supported)
+                language: en
+                # Available built-in language codes: __BUILT_IN_LANGUAGE_CODES__
+                # Examples: en=English, pl=Polski, zh_cn=Chinese Simplified, zh_hk=Chinese Traditional (Hong Kong), ja=Japanese, ko=Korean, th=Thai, id=Indonesian, pt_br=Brazilian Portuguese
+                # To add custom language: create messages_XX.properties in plugins/VeloAuth/lang/""";
+
+    private static final String DEBUG_SECTION = """
+                
+                # Debug settings
+                # Set to true for development/debugging
+                debug-enabled: false""";
+
+    private static final String DATABASE_SECTION = """
+                
+                # Database storage configuration
+                # Supported: H2, MYSQL, POSTGRESQL, SQLITE
+                database:
+                  # Storage type (e.g. H2, MYSQL, POSTGRESQL, SQLITE)
+                  storage-type: H2
+                  # Database host (e.g. db.example.com)
+                  hostname: localhost
+                  # Default ports: MYSQL=3306, POSTGRESQL=5432
+                  port: 3306
+                  # Database/schema name
+                  database: veloauth
+                  # Database user
+                  user: veloauth
+                  # Database password (strong password recommended)
+                  password: ""
+                  # Maximum pooled connections
+                  connection-pool-size: 20
+                  # Connection max lifetime in milliseconds (30 minutes)
+                  max-lifetime-millis: 1800000
+                  # Optional: Full database connection URL
+                  # If set, will be used instead of individual parameters
+                  # Examples:
+                  #   postgresql://user:pass@host:5432/database
+                  #   mysql://user:pass@host:3306/database
+                  connection-url: ""
+                  # Optional: Additional connection parameters
+                  # Query parameters inside connection-url are ignored; place them here instead.
+                  # For PostgreSQL SSL options, prefer database.postgresql.* settings below.
+                  # Example: "?autoReconnect=true&initialTimeout=1&useSSL=false&serverTimezone=UTC"
+                  connection-parameters: ""
+                 
+                  # PostgreSQL-specific configuration (used when storage-type is POSTGRESQL)
+                  postgresql:
+                    # Enable SSL connection to PostgreSQL (recommended for hosted databases)
+                    ssl-enabled: true
+                    # SSL mode: disable, allow, prefer, require, verify-ca, verify-full
+                    ssl-mode: "require"
+                    # Path to SSL certificate file (optional)
+                    ssl-cert: ""
+                    # Path to SSL key file (optional)
+                    ssl-key: ""
+                    # Path to SSL root certificate file (optional)
+                    ssl-root-cert: ""
+                    # SSL password for key file (optional)
+                    ssl-password: "\"""";
+
+    private static final String CACHE_SECTION = """
+                
+                # Authentication cache configuration
+                cache:
+                  # Cache entry lifetime in minutes
+                  ttl-minutes: 60
+                  # Maximum cached records
+                  max-size: 10000
+                  # Cleanup scheduler interval in minutes
+                  cleanup-interval-minutes: 5
+                  # Session inactivity timeout in minutes
+                  session-timeout-minutes: 60
+                  # Premium status cache TTL in hours
+                  premium-ttl-hours: 24
+                  # Background refresh threshold (0.0-1.0)
+                  premium-refresh-threshold: 0.8""";
+
+    private static final String AUTH_SERVER_SECTION = """
+                
+                # Auth server (limbo/lobby for unauthenticated players)
+                # Compatible with: NanoLimbo, LOOHP/Limbo, LimboService, PicoLimbo, hpfxd/Limbo
+                auth-server:
+                  # Must match server name in velocity.toml [servers]
+                  server-name: limbo
+                  # NOTE: This option is not yet implemented and has no effect
+                  # Seconds before unauthenticated player is kicked
+                  timeout-seconds: 300""";
+
+    private static final String CONNECTION_SECTION = """
+                
+                # Connection settings
+                connection:
+                  # Connection timeout in seconds
+                  # Should be <= Velocity read-timeout (default 30s)
+                  timeout-seconds: 30""";
+
+    private static final String SECURITY_SECTION = """
+                
+                # Security settings for password hashing and brute-force protection
+                security:
+                  # BCrypt hashing rounds (10-31)
+                  bcrypt-cost: 10
+                  # Max failed login attempts before temporary block
+                  bruteforce-max-attempts: 5
+                  # Block duration in minutes
+                  bruteforce-timeout-minutes: 5
+                  # Max account registrations per IP
+                  ip-limit-registrations: 3
+                  # Inclusive minimum password length
+                  min-password-length: 8
+                  # Inclusive maximum password length (BCrypt limit: 72)
+                  max-password-length: 72""";
+
+    private static final String PREMIUM_SECTION = """
+                
+                # Premium account detection configuration
+                premium:
+                  # Enable premium account verification
+                  check-enabled: true
+                  # NOTE: This option is not yet implemented and has no effect
+                  # Force auth for premium players on online-mode proxies
+                  online-mode-need-auth: false
+                  resolver:
+                    # Query Mojang API
+                    mojang-enabled: true
+                    # Query Ashcon API
+                    ashcon-enabled: true
+                    # Query WPME API
+                    wpme-enabled: false
+                    # Per-request timeout in milliseconds
+                    request-timeout-ms: 2000
+                    # Cache TTL for positive hits in minutes
+                    hit-ttl-minutes: 10
+                    # Cache TTL for misses in minutes
+                    miss-ttl-minutes: 3
+                    # Preserve username case in resolver cache
+                    case-sensitive: true""";
+
+    private static final String FLOODGATE_SECTION = """
+                
+                # Floodgate / Bedrock support configuration
+                # Must stay aligned with your Floodgate proxy config.
+                floodgate:
+                  # Enable Floodgate-specific Bedrock handling in VeloAuth
+                  enabled: false
+                  # Match Floodgate's username-prefix; use "" if you removed the prefix
+                  username-prefix: "."
+                  # Bedrock players authenticated by Floodgate can skip auth server
+                  bypass-auth-server: true""";
+
+    private static final String ALERTS_SECTION = """
+                
+                # Alert system configuration (optional - Discord webhook notifications)
+                alerts:
+                  # Enable/disable alert system
+                  enabled: false
+                  # Alert when failure rate exceeds this threshold (0.0-1.0)
+                  failure-rate-threshold: 0.5
+                  # Minimum requests before sending alert
+                  min-requests-for-alert: 10
+                  # Check metrics interval in minutes
+                  check-interval-minutes: 5
+                  # Cooldown between alerts in minutes (prevent spam)
+                  alert-cooldown-minutes: 30
+                  
+                  # Discord webhook configuration (optional)
+                  discord:
+                    # Enable Discord webhook notifications
+                    enabled: false
+                    # Discord webhook URL (get from Discord server settings)
+                    # Example: "https://discord.com/api/webhooks/YOUR_WEBHOOK_ID/YOUR_WEBHOOK_TOKEN"
+                    webhook-url: "\"""";
+}

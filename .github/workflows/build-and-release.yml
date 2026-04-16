@@ -1,0 +1,162 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+
+permissions:
+  contents: write
+
+jobs:
+  # Check if there are actual source code changes (excluding docs, workflows, etc.)
+  check-changes:
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    outputs:
+      should-release: ${{ steps.changes.outputs.source-changed }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+        
+    - name: Check for source changes
+      id: changes
+      run: |
+        # Check if there are changes in source files (excluding docs, workflows, etc.)
+        if git diff --name-only HEAD~1 HEAD | grep -E '\.(java|xml|yml|yaml|json|properties)$' | grep -v -E '\.github/|README\.md|\.gitignore'; then
+          echo "source-changed=true" >> $GITHUB_OUTPUT
+          echo "Source code changes detected - will create release"
+        else
+          echo "source-changed=false" >> $GITHUB_OUTPUT
+          echo "No source code changes - skipping release"
+        fi
+
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 21
+      uses: actions/setup-java@v4
+      with:
+        java-version: '21'
+        distribution: 'temurin'
+        cache: 'maven'
+        
+    # Use Maven CLI on GitHub runners
+    - name: Prepare Maven
+      run: mvn -v
+        
+    - name: Build with Maven
+      run: mvn -B -V clean package -DskipTests=false
+      
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: veloauth-jar
+        path: target/veloauth-*.jar
+        retention-days: 30
+        
+        
+  release:
+    needs: [build]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    env:
+      VERSION: ""
+      RELEASE_NAME: ""
+      RELEASE_PRERELEASE: "false"
+      RELEASE_MAKE_LATEST: "false"
+      RELEASE_NOTES: ""
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+        
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: veloauth-jar
+        path: ./
+
+    - name: Generate release notes
+      run: |
+        git fetch --tags --prune
+        git log -n 10 --pretty=format:'- %h %s (%an)' > release_notes.txt || true
+        if [ ! -s release_notes.txt ]; then
+          echo "- No recent commits found." > release_notes.txt
+        fi
+        
+    
+        
+    - name: Create/update latest tag
+      if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+      run: |
+        VERSION="latest"
+        echo "VERSION=$VERSION" >> $GITHUB_ENV
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Force update existing latest tag or create new one
+        if git rev-parse -q --verify "refs/tags/latest" >/dev/null; then
+          git tag -d latest
+          git push origin :latest
+        fi
+        git tag -a "latest" -m "Release latest - $(date +%Y-%m-%d)"
+        git push origin "latest"
+        
+    - name: Set version from tag
+      if: startsWith(github.ref, 'refs/tags/')
+      run: |
+        echo "VERSION=${{ github.ref_name }}" >> $GITHUB_ENV
+        
+    - name: Rename JAR for release
+      run: |
+        mv veloauth-*.jar "veloauth-$VERSION.jar"
+        
+    - name: Prepare release metadata
+      run: |
+        recent_notes="$(cat release_notes.txt)"
+        if [ "$VERSION" = "latest" ]; then
+          echo "RELEASE_NAME=Rolling Latest Build" >> $GITHUB_ENV
+          {
+            echo "Rolling release updated on $(date -u '+%Y-%m-%d %H:%M UTC')."
+            echo
+            echo "Recent changes:"
+            echo "$recent_notes"
+          } > release_body.txt
+          echo "RELEASE_PRERELEASE=false" >> $GITHUB_ENV
+          echo "RELEASE_MAKE_LATEST=true" >> $GITHUB_ENV
+        else
+          echo "RELEASE_NAME=${VERSION}" >> $GITHUB_ENV
+          {
+            echo "Release for tag ${VERSION}."
+            echo
+            echo "Recent changes:"
+            echo "$recent_notes"
+          } > release_body.txt
+          echo "RELEASE_PRERELEASE=false" >> $GITHUB_ENV
+          echo "RELEASE_MAKE_LATEST=true" >> $GITHUB_ENV
+        fi
+
+    - name: Publish (update) release
+      uses: ncipollo/release-action@b7eabc95ff50cbeeedec83973935c8f306dfcd0b
+      with:
+        tag: ${{ env.VERSION }}
+        name: ${{ env.RELEASE_NAME }}
+        bodyFile: release_body.txt
+        allowUpdates: true
+        replacesArtifacts: true
+        makeLatest: ${{ env.RELEASE_MAKE_LATEST }}
+        draft: false
+        prerelease: ${{ env.RELEASE_PRERELEASE }}
+        artifacts: "veloauth-*.jar"

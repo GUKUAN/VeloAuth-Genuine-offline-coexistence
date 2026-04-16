@@ -1,0 +1,14 @@
+{
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.compile.nullAnalysis.mode": "automatic",
+    "sonarlint.connectedMode.project": {
+        "connectionId": "rafalohaki",
+        "projectKey": "rafalohaki_VeloAuth"
+    },
+    "kiroAgent.configureMCP": "Enabled",
+    "chat.tools.terminal.autoApprove": {
+        "jar": true,
+        "mvnd": true,
+        "javap": true
+    }
+}
