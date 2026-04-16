@@ -167,6 +167,8 @@ final class DefaultConfigGenerator {
                   # NOTE: This option is not yet implemented and has no effect
                   # Force auth for premium players on online-mode proxies
                   online-mode-need-auth: false
+                  # Keep premium UUID after verification (true = keeps premium UUID, false = converts to offline UUID)
+                  premium-uuid: false
                   resolver:
                     # Query Mojang API
                     mojang-enabled: true

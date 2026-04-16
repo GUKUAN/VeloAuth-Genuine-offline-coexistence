@@ -431,11 +431,14 @@ public class Settings {
         private final PremiumResolverSettings resolver = new PremiumResolverSettings();
         private boolean checkEnabled = true;
         private boolean onlineModeNeedAuth = false;
+        private boolean premiumUuid = false;
 
         public boolean isCheckEnabled() { return checkEnabled; }
         void setCheckEnabled(boolean value) { this.checkEnabled = value; }
         public boolean isOnlineModeNeedAuth() { return onlineModeNeedAuth; }
         void setOnlineModeNeedAuth(boolean value) { this.onlineModeNeedAuth = value; }
+        public boolean isPremiumUuid() { return premiumUuid; }
+        void setPremiumUuid(boolean value) { this.premiumUuid = value; }
         public PremiumResolverSettings getResolver() { return resolver; }
     }
 

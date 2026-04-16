@@ -460,6 +460,21 @@ public class AuthListener {
         event.setResult(ComponentResult.allowed());
     }
 
+    @Subscribe
+    public void onGameProfileRequest(com.velocitypowered.api.event.player.GameProfileRequestEvent event) {
+        if (!event.isOnlineMode()) {
+            return;
+        }
+
+        if (!settings.isPremiumUuid()) {
+            UUID premiumUuid = event.getGameProfile().getId();
+            UUID offlineUuid = UUID.nameUUIDFromBytes(("OfflinePlayer:" + event.getUsername()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            event.setGameProfile(event.getGameProfile().withId(offlineUuid));
+            logger.info("[PREMIUM UUID] Player {} - converted premium UUID {} to offline UUID {}",
+                    event.getUsername(), premiumUuid, offlineUuid);
+        }
+    }
+
     /**
      * Obsługuje disconnect gracza - kończy sesję premium.
      * Zapobiega session hijacking przez natychmiastowe kończenie sesji.
